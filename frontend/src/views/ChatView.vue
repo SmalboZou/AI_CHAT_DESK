@@ -31,7 +31,7 @@
             v-model="inputMessage"
             type="textarea"
             :autosize="{ minRows: 1, maxRows: 3 }"
-            placeholder="输入你的消息..."
+            placeholder="输入你的消息...按Ctrl+Enter发送"
             @keyup.enter.ctrl="sendMessage"
             class="message-input"
           />
@@ -51,9 +51,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { User, ChatDotRound, Setting } from '@element-plus/icons-vue'
+import { useSettingsStore } from '../stores/settings'
+import { chatAPI } from '../services/api'
+import type { ChatMessage } from '../services/api'
 
 interface Message {
   id: number
@@ -62,11 +65,12 @@ interface Message {
   timestamp: Date
 }
 
+const settingsStore = useSettingsStore()
 const messages = ref<Message[]>([
   {
     id: 1,
     role: 'assistant',
-    content: '您好！我是AI助手，有什么可以帮助您的吗？',
+    content: '您好！我是AI助手，有什么可以帮助您的吗？如果您是第一次使用，请先在设置中配置API密钥。',
     timestamp: new Date()
   }
 ])
@@ -77,6 +81,12 @@ const messagesContainer = ref<HTMLElement>()
 
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return
+
+  // 检查是否配置了API密钥
+  if (!settingsStore.isConfigured()) {
+    ElMessage.warning('请先在设置中配置API密钥')
+    return
+  }
 
   const userMessage: Message = {
     id: Date.now(),
@@ -96,22 +106,55 @@ const sendMessage = async () => {
   isLoading.value = true
 
   try {
-    // TODO: 调用后端API
-    // 这里暂时模拟AI回复
-    setTimeout(() => {
-      const aiMessage: Message = {
-        id: Date.now() + 1,
-        role: 'assistant',
-        content: `收到您的消息："${userInput}"。这是一个模拟回复，实际回复需要连接到AI服务。`,
-        timestamp: new Date()
-      }
-      messages.value.push(aiMessage)
-      isLoading.value = false
-      nextTick(() => scrollToBottom())
-    }, 1000)
-  } catch (error) {
+    // 准备发送给API的消息历史（只发送最近的10条消息避免上下文过长）
+    const recentMessages = messages.value.slice(-10).map(msg => ({
+      role: msg.role,
+      content: msg.content
+    })) as ChatMessage[]
+
+    const response = await chatAPI.sendMessage({
+      messages: recentMessages,
+      provider: settingsStore.apiSettings.provider,
+      model: settingsStore.apiSettings.modelName,
+      temperature: settingsStore.apiSettings.temperature,
+      max_tokens: settingsStore.apiSettings.maxTokens
+    })
+
+    const aiMessage: Message = {
+      id: Date.now() + 1,
+      role: 'assistant',
+      content: response.message.content,
+      timestamp: new Date()
+    }
+    
+    messages.value.push(aiMessage)
+    await nextTick()
+    scrollToBottom()
+    
+  } catch (error: any) {
     console.error('发送消息失败:', error)
-    ElMessage.error('发送消息失败，请重试')
+    
+    // 显示详细错误信息
+    let errorMessage = '发送消息失败'
+    if (error.response?.data?.detail) {
+      errorMessage = error.response.data.detail
+    } else if (error.message) {
+      errorMessage = error.message
+    }
+    
+    ElMessage.error(errorMessage)
+    
+    // 添加错误消息到聊天记录
+    const errorMsg: Message = {
+      id: Date.now() + 1,
+      role: 'assistant',
+      content: `抱歉，发生了错误：${errorMessage}。请检查您的API配置是否正确。`,
+      timestamp: new Date()
+    }
+    messages.value.push(errorMsg)
+    await nextTick()
+    scrollToBottom()
+  } finally {
     isLoading.value = false
   }
 }
@@ -121,6 +164,11 @@ const scrollToBottom = () => {
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
   }
 }
+
+onMounted(() => {
+  // 加载设置
+  settingsStore.loadSettings()
+})
 </script>
 
 <style scoped>

@@ -74,6 +74,13 @@ async def chat(request: ChatRequest):
         # 根据provider选择相应的API配置
         config = get_api_config(request.provider)
         
+        # 验证配置
+        if not config.get('api_key'):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"未配置{request.provider}的API密钥，请先在设置中配置"
+            )
+        
         if request.provider == "openai":
             response = await call_openai_api(request, config)
         elif request.provider == "anthropic":
@@ -83,6 +90,8 @@ async def chat(request: ChatRequest):
         
         return response
     
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"聊天请求失败: {str(e)}")
 
@@ -114,16 +123,34 @@ async def get_config(provider: str):
 async def test_connection(config: APIConfig):
     """测试API连接"""
     try:
-        # 这里可以实现实际的连接测试
+        # 创建一个简单的测试请求
         test_request = ChatRequest(
-            messages=[ChatMessage(role="user", content="测试连接")],
+            messages=[ChatMessage(role="user", content="Hello, this is a connection test.")],
             provider=config.provider,
-            model=config.model
+            model=config.model,
+            temperature=0.1,
+            max_tokens=50
         )
         
-        # 暂时返回成功，实际应该测试真实的API连接
-        return {"status": "success", "message": "连接测试成功"}
+        # 使用传入的配置进行测试
+        test_config = {
+            "api_key": config.api_key,
+            "base_url": config.base_url,
+            "model": config.model
+        }
+        
+        if config.provider == "openai":
+            response = await call_openai_api(test_request, test_config)
+            return {"status": "success", "message": "OpenAI连接测试成功", "response": response.message.content[:100]}
+        elif config.provider == "anthropic":
+            response = await call_anthropic_api(test_request, test_config)
+            return {"status": "success", "message": "Anthropic连接测试成功", "response": response.message.content[:100]}
+        else:
+            response = await call_custom_api(test_request, test_config)
+            return {"status": "success", "message": "自定义API连接测试成功", "response": response.message.content[:100]}
     
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"连接测试失败: {str(e)}")
 
@@ -157,6 +184,9 @@ def get_default_config(provider: str) -> dict:
 
 async def call_openai_api(request: ChatRequest, config: dict) -> ChatResponse:
     """调用OpenAI API"""
+    if not config.get('api_key'):
+        raise HTTPException(status_code=400, detail="未配置OpenAI API密钥")
+    
     headers = {
         "Authorization": f"Bearer {config['api_key']}",
         "Content-Type": "application/json"
@@ -169,22 +199,40 @@ async def call_openai_api(request: ChatRequest, config: dict) -> ChatResponse:
         "max_tokens": request.max_tokens
     }
     
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{config['base_url']}/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30.0
-        )
-        response.raise_for_status()
-        
-        data = response.json()
-        message_content = data["choices"][0]["message"]["content"]
-        
-        return ChatResponse(
-            message=ChatMessage(role="assistant", content=message_content),
-            usage=data.get("usage")
-        )
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{config['base_url']}/chat/completions",
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code != 200:
+                error_detail = f"OpenAI API错误 (状态码: {response.status_code})"
+                try:
+                    error_data = response.json()
+                    if 'error' in error_data:
+                        error_detail = f"OpenAI API错误: {error_data['error'].get('message', '未知错误')}"
+                except:
+                    error_detail = f"OpenAI API错误: HTTP {response.status_code}"
+                raise HTTPException(status_code=response.status_code, detail=error_detail)
+            
+            data = response.json()
+            
+            if 'choices' not in data or len(data['choices']) == 0:
+                raise HTTPException(status_code=500, detail="OpenAI API返回了无效的响应")
+            
+            message_content = data["choices"][0]["message"]["content"]
+            
+            return ChatResponse(
+                message=ChatMessage(role="assistant", content=message_content),
+                usage=data.get("usage")
+            )
+            
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"请求OpenAI API失败: {str(e)}")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=500, detail="请求OpenAI API超时，请稍后重试")
 
 async def call_anthropic_api(request: ChatRequest, config: dict) -> ChatResponse:
     """调用Anthropic API"""
