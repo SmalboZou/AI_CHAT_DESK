@@ -25,8 +25,54 @@ function createWindow() {
   
   // 开发环境加载开发服务器，生产环境加载构建文件
   if (process.env.NODE_ENV === 'development') {
-    console.log('加载开发服务器: http://localhost:5173')
-    mainWindow.loadURL('http://localhost:5173')
+    // 动态检测Vite端口
+    const devPort = process.env.VITE_DEV_PORT || '5173'
+    const devUrl = `http://localhost:${devPort}`
+    console.log(`加载开发服务器: ${devUrl}`)
+    
+    // 等待开发服务器启动
+    const waitForServer = async (url, maxAttempts = 30) => {
+      for (let i = 0; i < maxAttempts; i++) {
+        try {
+          const { net } = require('electron')
+          const request = net.request(url)
+          return new Promise((resolve, reject) => {
+            request.on('response', () => resolve(true))
+            request.on('error', () => reject(false))
+            request.end()
+          })
+        } catch {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+      }
+      return false
+    }
+    
+    // 尝试连接开发服务器
+    waitForServer(devUrl).then(() => {
+      mainWindow.loadURL(devUrl)
+    }).catch(() => {
+      console.error('无法连接到开发服务器，尝试备用端口')
+      // 尝试其他常见端口
+      const alternativePorts = ['5173', '5174', '5175', '3000']
+      let found = false
+      
+      alternativePorts.forEach(async (port) => {
+        if (!found) {
+          const altUrl = `http://localhost:${port}`
+          try {
+            if (await waitForServer(altUrl)) {
+              console.log(`找到开发服务器在端口 ${port}`)
+              mainWindow.loadURL(altUrl)
+              found = true
+            }
+          } catch (e) {
+            // 继续尝试下一个端口
+          }
+        }
+      })
+    })
+    
     // 开发环境下打开开发者工具
     mainWindow.webContents.openDevTools()
   } else {

@@ -70,7 +70,7 @@ const messages = ref<Message[]>([
   {
     id: 1,
     role: 'assistant',
-    content: '您好！我是AI助手，有什么可以帮助您的吗？如果您是第一次使用，请先在设置中配置API密钥。',
+    content: '您好！我是AI助手。当前应用默认运行在演示模式下，您可以直接体验聊天功能。如需使用真实的AI模型，请在设置中配置相应的API密钥。',
     timestamp: new Date()
   }
 ])
@@ -136,19 +136,31 @@ const sendMessage = async () => {
     
     // 显示详细错误信息
     let errorMessage = '发送消息失败'
-    if (error.response?.data?.detail) {
+    let suggestion = ''
+    
+    if (error.response?.status === 401) {
+      errorMessage = 'API认证失败（401错误）'
+      suggestion = '建议：1. 检查API密钥是否正确  2. 尝试使用演示模式进行测试'
+    } else if (error.response?.data?.detail) {
       errorMessage = error.response.data.detail
+      if (errorMessage.includes('API密钥')) {
+        suggestion = '建议：在设置中选择"演示模式"可无需API密钥直接体验'
+      }
     } else if (error.message) {
       errorMessage = error.message
     }
     
-    ElMessage.error(errorMessage)
+    ElMessage.error({
+      message: errorMessage + (suggestion ? '\n' + suggestion : ''),
+      duration: 5000,
+      showClose: true
+    })
     
     // 添加错误消息到聊天记录
     const errorMsg: Message = {
       id: Date.now() + 1,
       role: 'assistant',
-      content: `抱歉，发生了错误：${errorMessage}。请检查您的API配置是否正确。`,
+      content: `抱歉，发生了错误：${errorMessage}\n\n${suggestion || '请检查您的API配置是否正确，或在设置中选择演示模式。'}`,
       timestamp: new Date()
     }
     messages.value.push(errorMsg)

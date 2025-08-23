@@ -29,6 +29,14 @@ api.interceptors.response.use(
   },
   (error) => {
     console.error('响应错误:', error.response?.status, error.message)
+    
+    // 处理网络错误
+    if (error.code === 'ECONNREFUSED' || error.message.includes('fetch')) {
+      error.message = '无法连接到后端API服务，请检查服务是否正常启动'
+    } else if (error.code === 'TIMEOUT_EXCEEDED') {
+      error.message = '请求超时，请稍后重试'
+    }
+    
     return Promise.reject(error)
   }
 )
@@ -55,14 +63,33 @@ export interface ChatResponse {
 export const chatAPI = {
   // 发送聊天消息
   sendMessage: async (request: ChatRequest): Promise<ChatResponse> => {
-    const response = await api.post('/api/chat', request)
-    return response.data
+    try {
+      const response = await api.post('/api/chat', request)
+      return response.data
+    } catch (error: any) {
+      // 提供更详细的错误信息
+      if (error.response?.data?.detail) {
+        throw new Error(error.response.data.detail)
+      } else if (error.message) {
+        throw error
+      } else {
+        throw new Error('发送消息失败，请稍后重试')
+      }
+    }
   },
 
   // 测试连接
   testConnection: async (config: any): Promise<any> => {
-    const response = await api.post('/api/test-connection', config)
-    return response.data
+    try {
+      const response = await api.post('/api/test-connection', config)
+      return response.data
+    } catch (error: any) {
+      if (error.response?.data?.detail) {
+        throw new Error(error.response.data.detail)
+      } else {
+        throw new Error('连接测试失败')
+      }
+    }
   }
 }
 

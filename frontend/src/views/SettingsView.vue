@@ -20,6 +20,7 @@
           <el-form :model="formSettings" label-width="120px" class="settings-form">
             <el-form-item label="模型提供商">
               <el-select v-model="formSettings.provider" placeholder="请选择模型提供商" @change="onProviderChange">
+                <el-option label="演示模式（无需API密钥）" value="demo" />
                 <el-option label="OpenAI" value="openai" />
                 <el-option label="Anthropic" value="anthropic" />
                 <el-option label="自定义" value="custom" />
@@ -72,6 +73,7 @@
             <el-form-item>
               <el-button type="primary" @click="saveSettings">保存设置</el-button>
               <el-button @click="testConnection" :loading="testing">测试连接</el-button>
+              <el-button type="warning" @click="resetToDemo">重置为演示模式</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -115,7 +117,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
-import { useSettingsStore } from '../stores/settings'
+import { useSettingsStore, type APISettings } from '../stores/settings'
 import { configAPI, chatAPI } from '../services/api'
 import type { ChatMessage } from '../services/api'
 
@@ -129,10 +131,10 @@ const settingsStore = useSettingsStore()
 
 // Create local reactive form data
 const formSettings = ref<APISettings>({
-  provider: 'openai',
-  apiKey: '',
-  baseUrl: 'https://api.openai.com/v1',
-  modelName: 'gpt-3.5-turbo',
+  provider: 'demo',
+  apiKey: 'demo_key',
+  baseUrl: 'demo',
+  modelName: 'demo-model',
   temperature: 0.7,
   maxTokens: 2048
 })
@@ -144,6 +146,26 @@ const appSettings = ref<AppSettings>({
 })
 
 const testing = ref(false)
+
+const resetToDemo = () => {
+  // 清除localStorage中的设置
+  localStorage.removeItem('aiSettings')
+  
+  // 重置为演示模式设置
+  formSettings.value = {
+    provider: 'demo',
+    apiKey: 'demo_key',
+    baseUrl: 'demo',
+    modelName: 'demo-model',
+    temperature: 0.7,
+    maxTokens: 2048
+  }
+  
+  // 保存到store和本地存储
+  settingsStore.saveSettings(formSettings.value)
+  
+  ElMessage.success('已重置为演示模式，可以直接使用聊天功能！')
+}
 
 const saveSettings = async () => {
   try {
@@ -171,35 +193,57 @@ const saveAppSettings = () => {
 }
 
 const testConnection = async () => {
+  console.log('Testing connection with provider:', formSettings.value.provider)
+  
+  // 演示模式不需要API密钥
+  if (formSettings.value.provider === 'demo') {
+    testing.value = true
+    // Simulate a brief delay for demo mode
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    testing.value = false
+    ElMessage.success('演示模式已准备就绪！您可以直接开始聊天体验。')
+    return
+  }
+  
   if (!formSettings.value.apiKey) {
-    ElMessage.warning('请先输入API密钥')
+    ElMessage.warning('请先输入API密钥，或选择"演示模式"进行无API测试')
     return
   }
   
   testing.value = true
   try {
-    // 发送测试消息到后端
-    const testMessages: ChatMessage[] = [
-      { role: 'user', content: '你好，这是一个连接测试' }
-    ]
-    
-    const response = await chatAPI.sendMessage({
-      messages: testMessages,
+    // Use the dedicated test connection API instead of sendMessage
+    const response = await chatAPI.testConnection({
       provider: formSettings.value.provider,
-      model: formSettings.value.modelName,
-      temperature: formSettings.value.temperature,
-      max_tokens: 500
+      api_key: formSettings.value.apiKey,
+      base_url: formSettings.value.baseUrl,
+      model: formSettings.value.modelName
     })
     
-    if (response.message.content) {
-      ElMessage.success('连接测试成功！AI响应正常')
+    if (response && response.status === 'success') {
+      ElMessage.success('连接测试成功！API响应正常')
     } else {
-      ElMessage.error('连接测试失败：收到空响应')
+      ElMessage.error('连接测试失败：收到异常响应')
     }
   } catch (error: any) {
     console.error('连接测试失败:', error)
-    const errorMsg = error.response?.data?.detail || error.message || '连接测试失败'
-    ElMessage.error(`连接测试失败: ${errorMsg}`)
+    let errorMsg = '连接测试失败'
+    let suggestion = ''
+    
+    if (error.response?.status === 401) {
+      errorMsg = 'API认证失败（401错误）'
+      suggestion = '建议：1. 检查API密钥是否正确  2. 尝试使用演示模式进行测试'
+    } else if (error.response?.data?.detail) {
+      errorMsg = error.response.data.detail
+    } else if (error.message) {
+      errorMsg = error.message
+    }
+    
+    ElMessage.error({
+      message: errorMsg + (suggestion ? '\n' + suggestion : ''),
+      duration: 5000,
+      showClose: true
+    })
   } finally {
     testing.value = false
   }
@@ -208,8 +252,29 @@ const testConnection = async () => {
 const loadSettings = () => {
   // 从store加载设置
   settingsStore.loadSettings()
+  
+  console.log('Loaded settings from store:', settingsStore.apiSettings)
+  
   // 同步到表单数据
   formSettings.value = { ...settingsStore.apiSettings }
+  
+  // 如果不是演示模式但缺少API密钥，强制转为演示模式
+  if (formSettings.value.provider !== 'demo' && 
+      (!formSettings.value.apiKey || formSettings.value.apiKey === '')) {
+    console.log('No valid API key found, switching to demo mode')
+    formSettings.value = {
+      provider: 'demo',
+      apiKey: 'demo_key',
+      baseUrl: 'demo',
+      modelName: 'demo-model',
+      temperature: formSettings.value.temperature || 0.7,
+      maxTokens: formSettings.value.maxTokens || 2048
+    }
+    // 自动保存更新后的设置
+    settingsStore.saveSettings(formSettings.value)
+  }
+  
+  console.log('Final form settings:', formSettings.value)
   
   const savedAppSettings = localStorage.getItem('appSettings')
   if (savedAppSettings) {
@@ -222,9 +287,19 @@ const onProviderChange = () => {
   if (formSettings.value.provider === 'openai') {
     formSettings.value.baseUrl = 'https://api.openai.com/v1'
     formSettings.value.modelName = 'gpt-3.5-turbo'
+    formSettings.value.apiKey = ''
   } else if (formSettings.value.provider === 'anthropic') {
     formSettings.value.baseUrl = 'https://api.anthropic.com'
     formSettings.value.modelName = 'claude-3-sonnet-20240229'
+    formSettings.value.apiKey = ''
+  } else if (formSettings.value.provider === 'demo') {
+    formSettings.value.baseUrl = 'demo'
+    formSettings.value.modelName = 'demo-model'
+    formSettings.value.apiKey = 'demo_key'
+  } else if (formSettings.value.provider === 'custom') {
+    formSettings.value.baseUrl = ''
+    formSettings.value.modelName = 'gpt-3.5-turbo'
+    formSettings.value.apiKey = ''
   }
 }
 
