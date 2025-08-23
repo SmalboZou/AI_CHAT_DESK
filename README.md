@@ -21,21 +21,21 @@
 
 ### 网络配置
 
-针对中国用户或需要代理访问的用户：
+
 
 #### 代理设置
 ```bash
 # 为 npm 设置代理
-npm config set proxy http://192.168.1.104:7890
-npm config set https-proxy http://192.168.1.104:7890
+npm config set proxy localhost:7890
+npm config set https-proxy localhost:7890
 
 # 为 git 设置代理
-git config --global http.proxy http://192.168.1.104:7890
-git config --global https.proxy http://192.168.1.104:7890
+git config --global http.proxy localhost:7890
+git config --global https.proxy localhost:7890
 
 # 为 Python pip/uv 设置代理
-export HTTP_PROXY=http://192.168.1.104:7890
-export HTTPS_PROXY=http://192.168.1.104:7890
+export HTTP_PROXY=localhost:7890
+export HTTPS_PROXY=localhost:7890
 ```
 
 #### 镜像源配置（代理的替代方案）
@@ -312,7 +312,7 @@ npm run backend:start
 
 ```bash
 # 测试代理连接
-curl --proxy http://192.168.1.104:7890 https://www.google.com
+curl --proxy localhost:7890 https://www.google.com
 
 # 重置 npm 配置
 npm config delete proxy
