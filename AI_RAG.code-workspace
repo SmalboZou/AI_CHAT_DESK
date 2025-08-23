@@ -1,0 +1,31 @@
+{
+    "folders": [
+        {
+            "name": "Frontend",
+            "path": "./frontend"
+        },
+        {
+            "name": "Backend", 
+            "path": "./backend"
+        }
+    ],
+    "settings": {
+        "python.defaultInterpreterPath": "./backend/.venv/Scripts/python.exe",
+        "python.terminal.activateEnvironment": true,
+        "typescript.preferences.includePackageJsonAutoImports": "auto",
+        "typescript.suggest.autoImports": true,
+        "vue.server.hybridMode": true,
+        "files.associations": {
+            "*.vue": "vue"
+        }
+    },
+    "extensions": {
+        "recommendations": [
+            "ms-python.python",
+            "Vue.volar",
+            "Vue.vscode-typescript-vue-plugin",
+            "ms-python.pylint",
+            "ms-python.black-formatter"
+        ]
+    }
+}

@@ -1,0 +1,23 @@
+{
+    "include": [
+        "src/**/*"
+    ],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__"
+    ],
+    "venv": ".venv",
+    "venvPath": ".",
+    "pythonVersion": "3.11",
+    "pythonPlatform": "Windows",
+    "typeCheckingMode": "basic",
+    "useLibraryCodeForTypes": true,
+    "autoSearchPaths": true,
+    "extraPaths": [
+        "src",
+        ".venv/Lib/site-packages",
+        ".venv/Scripts"
+    ],
+    "reportMissingImports": "warning",
+    "reportMissingTypeStubs": false
+}
