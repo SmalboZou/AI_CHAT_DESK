@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI_RAG - Reset to Demo Mode</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            background: #f9f9f9;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .reset-btn {
+            background: #dc3545;
+        }
+        .reset-btn:hover {
+            background: #c82333;
+        }
+        pre {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 10px;
+            overflow-x: auto;
+        }
+        .step {
+            margin: 15px 0;
+            padding: 15px;
+            border-left: 4px solid #007bff;
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI_RAG Application - Demo Mode Reset Tool</h1>
+    
+    <div class="container warning">
+        <h3>⚠️ 401 Authentication Error Fix</h3>
+        <p>If you're getting a <strong>401 Unauthorized</strong> error when trying to use the chat feature, this tool will help you reset the application to demo mode, which doesn't require any API keys.</p>
+    </div>
+
+    <div class="container">
+        <h3>🚀 Quick Fix - Reset to Demo Mode</h3>
+        <p>Click the button below to automatically reset your settings to demo mode:</p>
+        
+        <button class="reset-btn" onclick="resetToDemo()">Reset to Demo Mode</button>
+        <button onclick="checkSettings()">Check Current Settings</button>
+        
+        <div id="result" style="margin-top: 15px;"></div>
+    </div>
+
+    <div class="container">
+        <h3>📝 Manual Steps (Alternative)</h3>
+        
+        <div class="step">
+            <h4>Step 1: Open the AI_RAG Application</h4>
+            <p>Start the application using the normal startup process.</p>
+        </div>
+
+        <div class="step">
+            <h4>Step 2: Access Settings</h4>
+            <p>Click the "Settings" button (⚙️) in the top-right corner of the chat interface.</p>
+        </div>
+
+        <div class="step">
+            <h4>Step 3: Select Demo Mode</h4>
+            <p>In the "Model Provider" dropdown, select <strong>"演示模式（无需API密钥）"</strong> (Demo Mode - No API Key Required).</p>
+        </div>
+
+        <div class="step">
+            <h4>Step 4: Save Settings</h4>
+            <p>Click the "Save Settings" button to apply the changes.</p>
+        </div>
+
+        <div class="step">
+            <h4>Step 5: Test Connection</h4>
+            <p>Click "Test Connection" to verify that demo mode is working properly.</p>
+        </div>
+
+        <div class="step">
+            <h4>Step 6: Return to Chat</h4>
+            <p>Go back to the chat interface and start chatting! The demo mode will provide simulated AI responses.</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <h3>🔧 Developer Console Method</h3>
+        <p>If the application is not responding, you can also reset via browser console:</p>
+        <ol>
+            <li>Open the application</li>
+            <li>Press <kbd>F12</kbd> to open Developer Tools</li>
+            <li>Go to the "Console" tab</li>
+            <li>Copy and paste this code:</li>
+        </ol>
+        <pre><code>// Reset to demo mode
+localStorage.removeItem('aiSettings');
+const demoSettings = {
+  provider: 'demo',
+  apiKey: 'demo_key',
+  baseUrl: 'demo',
+  modelName: 'demo-model',
+  temperature: 0.7,
+  maxTokens: 2048
+};
+localStorage.setItem('aiSettings', JSON.stringify(demoSettings));
+location.reload();</code></pre>
+    </div>
+
+    <div class="container">
+        <h3>❓ Why Demo Mode?</h3>
+        <p><strong>Demo mode</strong> allows you to test and use the AI chat application without needing real API keys from OpenAI, Anthropic, or other providers. It provides:</p>
+        <ul>
+            <li>✅ Instant setup with no configuration required</li>
+            <li>✅ Simulated AI responses to test the interface</li>
+            <li>✅ Full chat functionality without external API calls</li>
+            <li>✅ No cost or rate limiting concerns</li>
+        </ul>
+        <p>When you're ready to use real AI models, you can configure your actual API keys in the settings.</p>
+    </div>
+
+    <script>
+        function resetToDemo() {
+            try {
+                // Clear existing settings
+                localStorage.removeItem('aiSettings');
+                
+                // Set demo mode configuration
+                const demoSettings = {
+                    provider: 'demo',
+                    apiKey: 'demo_key',
+                    baseUrl: 'demo',
+                    modelName: 'demo-model',
+                    temperature: 0.7,
+                    maxTokens: 2048
+                };
+                
+                localStorage.setItem('aiSettings', JSON.stringify(demoSettings));
+                
+                document.getElementById('result').innerHTML = 
+                    '<div class="container success"><h4>✅ Success!</h4><p>Settings have been reset to demo mode. Please refresh or restart your AI_RAG application.</p></div>';
+                
+            } catch (error) {
+                document.getElementById('result').innerHTML = 
+                    '<div class="container error"><h4>❌ Error</h4><p>Failed to reset settings: ' + error.message + '</p></div>';
+            }
+        }
+        
+        function checkSettings() {
+            try {
+                const settings = localStorage.getItem('aiSettings');
+                let displayText;
+                
+                if (settings) {
+                    const parsed = JSON.parse(settings);
+                    displayText = '<h4>Current Settings:</h4><pre>' + JSON.stringify(parsed, null, 2) + '</pre>';
+                } else {
+                    displayText = '<h4>No Settings Found</h4><p>No configuration is currently stored. The app will use default demo mode.</p>';
+                }
+                
+                document.getElementById('result').innerHTML = 
+                    '<div class="container"><h4>📊 Settings Status</h4>' + displayText + '</div>';
+                    
+            } catch (error) {
+                document.getElementById('result').innerHTML = 
+                    '<div class="container error"><h4>❌ Error</h4><p>Failed to read settings: ' + error.message + '</p></div>';
+            }
+        }
+    </script>
+</body>
+</html>

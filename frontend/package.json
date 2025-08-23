@@ -1,0 +1,59 @@
+{
+  "name": "ai-chat-frontend",
+  "version": "1.0.0",
+  "description": "AI Chat Desktop Application Frontend",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron electron/main.js\"",
+    "dev:frontend-only": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development SKIP_BACKEND=true electron electron/main.js\"",
+    "dev:vite": "vite",
+    "dev:electron": "cross-env NODE_ENV=development electron electron/main.js",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview",
+    "start": "npm run dev",
+    "electron:build": "npm run build && electron-builder",
+    "backend:start": "cd ../backend && uv run python src/main.py",
+    "full:dev": "concurrently \"npm run backend:start\" \"npm run dev\"",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore",
+    "type-check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.6.2",
+    "element-plus": "^2.4.4",
+    "lodash-es": "^4.17.21",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.0",
+    "vue-router": "^4.2.5"
+  },
+  "devDependencies": {
+    "@types/lodash-es": "^4.17.12",
+    "@types/node": "^20.10.5",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "@vitejs/plugin-vue": "^4.5.2",
+    "concurrently": "^8.2.2",
+    "cross-env": "^10.0.0",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.1.2",
+    "eslint-plugin-vue": "^9.19.2",
+    "prettier": "^3.1.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.8",
+    "vue-tsc": "^1.8.25",
+    "wait-on": "^7.2.0"
+  },
+  "keywords": [
+    "ai",
+    "chat",
+    "desktop",
+    "electron",
+    "vue",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT"
+}
