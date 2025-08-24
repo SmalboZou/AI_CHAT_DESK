@@ -21,24 +21,9 @@ A desktop AI chat application built with Vite + Vue3 + Electron + Python, suppor
 
 ### Network Configuration
 
-For users in China or those needing proxy access:
+For users in China or those needing faster downloads:
 
-#### Proxy Settings
-```bash
-# Set proxy for npm
-npm config set proxy http://192.168.1.104:7890
-npm config set https-proxy http://192.168.1.104:7890
-
-# Set proxy for git
-git config --global http.proxy http://192.168.1.104:7890
-git config --global https.proxy http://192.168.1.104:7890
-
-# Set proxy for Python pip/uv
-export HTTP_PROXY=http://192.168.1.104:7890
-export HTTPS_PROXY=http://192.168.1.104:7890
-```
-
-#### Mirror Registry (Alternative to Proxy)
+#### Mirror Registry
 ```bash
 # Huawei npm mirror
 npm config set registry https://repo.huaweicloud.com/repository/npm/
@@ -289,7 +274,7 @@ uv run flake8 src/
 
 #### Common Issues
 
-1. **Proxy Issues**: If experiencing network issues, try switching between proxy and mirror configurations
+1. **Network Issues**: If experiencing network issues, try switching between different mirror configurations
 2. **Node Version**: Ensure Node.js version is 18+ for optimal Vite performance
 3. **Python Version**: Ensure Python 3.9+ for UV compatibility
 4. **Firewall**: Make sure ports 3000, 5173, and 8000 are accessible
@@ -297,9 +282,6 @@ uv run flake8 src/
 #### Network Troubleshooting
 
 ```bash
-# Test proxy connectivity
-curl --proxy http://192.168.1.104:7890 https://www.google.com
-
 # Reset npm configuration
 npm config delete proxy
 npm config delete https-proxy

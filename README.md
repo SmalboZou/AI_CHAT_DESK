@@ -21,24 +21,9 @@
 
 ### 网络配置
 
+如果您在中国或需要使用镜像加速下载：
 
-
-#### 代理设置
-```bash
-# 为 npm 设置代理
-npm config set proxy localhost:7890
-npm config set https-proxy localhost:7890
-
-# 为 git 设置代理
-git config --global http.proxy localhost:7890
-git config --global https.proxy localhost:7890
-
-# 为 Python pip/uv 设置代理
-export HTTP_PROXY=localhost:7890
-export HTTPS_PROXY=localhost:7890
-```
-
-#### 镜像源配置（代理的替代方案）
+#### 镜像源配置
 ```bash
 # 华为 npm 镜像
 npm config set registry https://repo.huaweicloud.com/repository/npm/
@@ -303,7 +288,7 @@ npm run backend:start
 
 #### 常见问题
 
-1. **代理问题**：如果遇到网络问题，尝试在代理和镜像配置之间切换
+1. **网络问题**：如果遇到网络问题，尝试使用不同的镜像源配置
 2. **Node 版本**：确保 Node.js 版本为 18+ 以获得最佳 Vite 性能
 3. **Python 版本**：确保 Python 3.9+ 以兼容 UV
 4. **防火墙**：确保端口 3000、5173 和 8000 可访问
@@ -311,9 +296,6 @@ npm run backend:start
 #### 网络故障排除
 
 ```bash
-# 测试代理连接
-curl --proxy localhost:7890 https://www.google.com
-
 # 重置 npm 配置
 npm config delete proxy
 npm config delete https-proxy
