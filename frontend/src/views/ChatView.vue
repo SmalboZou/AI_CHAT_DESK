@@ -1,52 +1,50 @@
 <template>
   <div class="chat-container">
-    <el-container>
-      <el-header height="60px" class="chat-header">
-        <div class="header-content">
-          <h2>AI 聊天助手</h2>
-          <el-button type="primary" @click="$router.push('/settings')">
-            <el-icon><Setting /></el-icon>
-            设置
-          </el-button>
-        </div>
-      </el-header>
-      
-      <el-main class="chat-main">
-        <div class="messages-container" ref="messagesContainer">
-          <div v-for="message in messages" :key="message.id" class="message-item">
-            <div :class="['message', message.role]">
-              <div class="message-avatar">
-                <el-icon v-if="message.role === 'user'"><User /></el-icon>
-                <el-icon v-else><ChatDotRound /></el-icon>
-              </div>
-              <div class="message-content">{{ message.content }}</div>
+    <el-header height="60px" class="chat-header">
+      <div class="header-content">
+        <h2>AI 聊天助手</h2>
+        <el-button type="primary" @click="$router.push('/settings')">
+          <el-icon><Setting /></el-icon>
+          设置
+        </el-button>
+      </div>
+    </el-header>
+    
+    <div class="chat-main">
+      <div class="messages-container" ref="messagesContainer">
+        <div v-for="message in messages" :key="message.id" class="message-item">
+          <div :class="['message', message.role]">
+            <div class="message-avatar">
+              <el-icon v-if="message.role === 'user'"><User /></el-icon>
+              <el-icon v-else><ChatDotRound /></el-icon>
             </div>
+            <div class="message-content">{{ message.content }}</div>
           </div>
         </div>
-      </el-main>
-      
-      <el-footer height="80px" class="chat-footer">
-        <div class="input-container">
-          <el-input
-            v-model="inputMessage"
-            type="textarea"
-            :autosize="{ minRows: 1, maxRows: 3 }"
-            placeholder="输入你的消息...按Ctrl+Enter发送"
-            @keyup.enter.ctrl="sendMessage"
-            class="message-input"
-          />
-          <el-button 
-            type="primary" 
-            @click="sendMessage"
-            :disabled="!inputMessage.trim() || isLoading"
-            :loading="isLoading"
-            class="send-button"
-          >
-            发送
-          </el-button>
-        </div>
-      </el-footer>
-    </el-container>
+      </div>
+    </div>
+    
+    <el-footer height="auto" class="chat-footer">
+      <div class="input-container">
+        <el-input
+          v-model="inputMessage"
+          type="textarea"
+          :autosize="{ minRows: 1, maxRows: 3 }"
+          placeholder="输入你的消息...按Ctrl+Enter发送"
+          @keyup.enter.ctrl="sendMessage"
+          class="message-input"
+        />
+        <el-button 
+          type="primary" 
+          @click="sendMessage"
+          :disabled="!inputMessage.trim() || isLoading"
+          :loading="isLoading"
+          class="send-button"
+        >
+          发送
+        </el-button>
+      </div>
+    </el-footer>
   </div>
 </template>
 
@@ -173,7 +171,10 @@ const sendMessage = async () => {
 
 const scrollToBottom = () => {
   if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    // 使用 requestAnimationFrame 确保在DOM更新后滚动
+    requestAnimationFrame(() => {
+      messagesContainer.value!.scrollTop = messagesContainer.value!.scrollHeight
+    })
   }
 }
 
@@ -187,6 +188,8 @@ onMounted(() => {
 .chat-container {
   height: 100vh;
   background: #f5f5f5;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-header {
@@ -194,6 +197,7 @@ onMounted(() => {
   border-bottom: 1px solid #e4e7ed;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .header-content {
@@ -209,14 +213,18 @@ onMounted(() => {
 }
 
 .chat-main {
+  flex: 1;
   padding: 20px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .messages-container {
-  height: 100%;
+  flex: 1;
   overflow-y: auto;
   padding-right: 8px;
+  margin-bottom: 20px;
 }
 
 .message-item {
@@ -272,12 +280,17 @@ onMounted(() => {
   background: white;
   border-top: 1px solid #e4e7ed;
   padding: 12px 20px;
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
 }
 
 .input-container {
   display: flex;
   gap: 12px;
   align-items: flex-end;
+  max-width: 100%;
 }
 
 .message-input {
@@ -286,5 +299,24 @@ onMounted(() => {
 
 .send-button {
   flex-shrink: 0;
+}
+
+/* 确保消息区域有足够的滚动空间 */
+.messages-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 </style>
