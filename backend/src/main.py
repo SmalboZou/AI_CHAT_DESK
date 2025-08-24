@@ -174,6 +174,37 @@ async def test_connection(config: APIConfig):
                 "response": "演示模式已准备就绪，可以开始使用聊天功能。"
             }
         
+        # 添加网络诊断
+        if config.provider == "custom":
+            try:
+                import socket
+                from urllib.parse import urlparse
+                
+                # 解析URL获取主机名和端口
+                parsed_url = urlparse(config.base_url)
+                hostname = parsed_url.hostname
+                port = parsed_url.port or (443 if parsed_url.scheme == 'https' else 80)
+                
+                print(f"正在测试到 {hostname}:{port} 的网络连接...")
+                
+                # 测试TCP连接
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(10)
+                result = sock.connect_ex((hostname, port))
+                sock.close()
+                
+                if result != 0:
+                    print(f"TCP连接失败: {hostname}:{port}")
+                    raise HTTPException(
+                        status_code=503, 
+                        detail=f"无法连接到服务器 {hostname}:{port}，请检查网络连接和服务器状态"
+                    )
+                else:
+                    print(f"TCP连接成功: {hostname}:{port}")
+                    
+            except Exception as e:
+                print(f"网络诊断失败: {e}")
+        
         # 创建一个简单的测试请求
         test_request = ChatRequest(
             messages=[ChatMessage(role="user", content="Hello, this is a connection test.")],
@@ -260,24 +291,15 @@ async def call_openai_api(request: ChatRequest, config: dict) -> ChatResponse:
     }
     
     try:
-        # 配置代理和超时
-        proxy = os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY")
+        # 配置超时
         timeout = httpx.Timeout(60.0)
         
-        if proxy:
-            async with httpx.AsyncClient(timeout=timeout, proxy=proxy) as client:
-                response = await client.post(
-                    f"{config['base_url']}/chat/completions",
-                    headers=headers,
-                    json=payload
-                )
-        else:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    f"{config['base_url']}/chat/completions",
-                    headers=headers,
-                    json=payload
-                )
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{config['base_url']}/chat/completions",
+                headers=headers,
+                json=payload
+            )
         
         if response.status_code != 200:
             error_detail = f"OpenAI API错误 (状态码: {response.status_code})"
@@ -348,24 +370,15 @@ async def call_anthropic_api(request: ChatRequest, config: dict) -> ChatResponse
         payload["system"] = system_message
     
     try:
-        # 配置代理和超时
-        proxy = os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY")
+        # 配置超时
         timeout = httpx.Timeout(60.0)
         
-        if proxy:
-            async with httpx.AsyncClient(timeout=timeout, proxy=proxy) as client:
-                response = await client.post(
-                    f"{config['base_url']}/v1/messages",
-                    headers=headers,
-                    json=payload
-                )
-        else:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    f"{config['base_url']}/v1/messages",
-                    headers=headers,
-                    json=payload
-                )
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{config['base_url']}/v1/messages",
+                headers=headers,
+                json=payload
+            )
         
         if response.status_code != 200:
             error_detail = f"Anthropic API错误 (状态码: {response.status_code})"
@@ -441,7 +454,8 @@ async def call_custom_api(request: ChatRequest, config: dict) -> ChatResponse:
     
     headers = {
         "Authorization": f"Bearer {config['api_key']}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "AI-Chat-App/1.0"
     }
     
     payload = {
@@ -459,24 +473,40 @@ async def call_custom_api(request: ChatRequest, config: dict) -> ChatResponse:
         else:
             api_url = base_url
         
-        # 配置代理和超时
-        proxy = os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY")
-        timeout = httpx.Timeout(60.0)
+        print(f"正在请求API: {api_url}")
+        print(f"请求头: {dict(headers)}")
+        print(f"请求体模型: {payload['model']}")
         
-        if proxy:
-            async with httpx.AsyncClient(timeout=timeout, proxy=proxy) as client:
-                response = await client.post(
-                    api_url,
-                    headers=headers,
-                    json=payload
-                )
-        else:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    api_url,
-                    headers=headers,
-                    json=payload
-                )
+        # 配置更宽松的超时和重试设置
+        timeout = httpx.Timeout(
+            connect=30.0,  # 连接超时
+            read=120.0,    # 读取超时
+            write=30.0,    # 写入超时
+            pool=10.0      # 连接池超时
+        )
+        
+        # 创建客户端时添加更多配置
+        client_config = {
+            "timeout": timeout,
+            "verify": True,  # 验证SSL证书
+            "follow_redirects": True,  # 跟随重定向
+            "limits": httpx.Limits(
+                max_keepalive_connections=20,
+                max_connections=100,
+                keepalive_expiry=30.0
+            )
+        }
+        
+
+        
+        async with httpx.AsyncClient(**client_config) as client:
+            print("开始发送HTTP请求...")
+            response = await client.post(
+                api_url,
+                headers=headers,
+                json=payload
+            )
+            print(f"收到响应，状态码: {response.status_code}")
         
         if response.status_code != 200:
             error_detail = f"自定义API错误 (状态码: {response.status_code})"
@@ -501,6 +531,7 @@ async def call_custom_api(request: ChatRequest, config: dict) -> ChatResponse:
             raise HTTPException(status_code=response.status_code, detail=error_detail)
         
         data = response.json()
+        print(f"响应数据结构: {list(data.keys()) if isinstance(data, dict) else type(data)}")
         
         # 支持多种响应格式
         message_content = ""
@@ -522,18 +553,35 @@ async def call_custom_api(request: ChatRequest, config: dict) -> ChatResponse:
             # 另一种常见格式
             message_content = str(data['response'])
         else:
+            print(f"无法识别的响应格式: {data}")
             raise HTTPException(status_code=500, detail="自定义API返回了无法识别的响应格式")
         
         if not message_content:
             raise HTTPException(status_code=500, detail="自定义API返回了空的响应内容")
+        
+        print(f"成功获取响应内容，长度: {len(message_content)}")
         
         return ChatResponse(
             message=ChatMessage(role="assistant", content=message_content),
             usage=data.get("usage")
         )
         
+    except httpx.TimeoutException as e:
+        error_msg = f"请求自定义API超时: {str(e)} - 请检查网络连接或尝试稍后再试"
+        print(f"超时错误: {error_msg}")
+        raise HTTPException(status_code=408, detail=error_msg)
+    except httpx.ConnectError as e:
+        error_msg = f"连接自定义API失败: {str(e)} - 请检查Base URL是否正确或网络连接"
+        print(f"连接错误: {error_msg}")
+        raise HTTPException(status_code=503, detail=error_msg)
     except httpx.RequestError as e:
-        raise HTTPException(status_code=500, detail=f"请求自定义API失败: {str(e)}")
+        error_msg = f"请求自定义API失败: {str(e)}"
+        print(f"请求错误: {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)
+    except Exception as e:
+        error_msg = f"调用自定义API时发生未知错误: {str(e)}"
+        print(f"未知错误: {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)
 
 if __name__ == "__main__":
     import uvicorn
