@@ -21,6 +21,22 @@
             <div class="message-content">{{ message.content }}</div>
           </div>
         </div>
+        
+        <!-- 显示载入指示器 -->
+        <div v-if="isLoading" class="message-item">
+          <div class="message assistant">
+            <div class="message-avatar">
+              <el-icon><ChatDotRound /></el-icon>
+            </div>
+            <div class="message-content loading-content">
+              <el-icon class="loading-icon"><Loading /></el-icon>
+              AI正在思考中...
+              <el-button type="text" size="small" @click="stopMessage" class="stop-thinking-btn">
+                停止
+              </el-button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -35,13 +51,22 @@
           class="message-input"
         />
         <el-button 
+          v-if="!isLoading"
           type="primary" 
           @click="sendMessage"
-          :disabled="!inputMessage.trim() || isLoading"
-          :loading="isLoading"
+          :disabled="!inputMessage.trim()"
           class="send-button"
         >
           发送
+        </el-button>
+        <el-button 
+          v-else
+          type="danger" 
+          @click="stopMessage"
+          class="send-button"
+        >
+          <el-icon><CircleClose /></el-icon>
+          停止
         </el-button>
       </div>
     </el-footer>
@@ -51,7 +76,7 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { User, ChatDotRound, Setting } from '@element-plus/icons-vue'
+import { User, ChatDotRound, Setting, CircleClose, Loading } from '@element-plus/icons-vue'
 import { useSettingsStore } from '../stores/settings'
 import { chatAPI } from '../services/api'
 import type { ChatMessage } from '../services/api'
@@ -76,6 +101,7 @@ const messages = ref<Message[]>([
 const inputMessage = ref('')
 const isLoading = ref(false)
 const messagesContainer = ref<HTMLElement>()
+const abortController = ref<AbortController | null>(null)
 
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return
@@ -102,6 +128,9 @@ const sendMessage = async () => {
   scrollToBottom()
 
   isLoading.value = true
+  
+  // 创建新的 AbortController 用于取消请求
+  abortController.value = new AbortController()
 
   try {
     // 准备发送给API的消息历史（只发送最近的10条消息避免上下文过长）
@@ -116,7 +145,7 @@ const sendMessage = async () => {
       model: settingsStore.apiSettings.modelName,
       temperature: settingsStore.apiSettings.temperature,
       max_tokens: settingsStore.apiSettings.maxTokens
-    })
+    }, abortController.value.signal)
 
     const aiMessage: Message = {
       id: Date.now() + 1,
@@ -130,6 +159,13 @@ const sendMessage = async () => {
     scrollToBottom()
     
   } catch (error: any) {
+    // 如果是用户主动取消的请求，不显示错误信息
+    if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
+      console.log('请求已被用户取消')
+      ElMessage.info('消息发送已停止')
+      return
+    }
+    
     console.error('发送消息失败:', error)
     
     // 显示详细错误信息
@@ -166,6 +202,16 @@ const sendMessage = async () => {
     scrollToBottom()
   } finally {
     isLoading.value = false
+    abortController.value = null
+  }
+}
+
+const stopMessage = () => {
+  if (abortController.value) {
+    abortController.value.abort()
+    abortController.value = null
+    isLoading.value = false
+    ElMessage.info('已停止发送消息')
   }
 }
 
@@ -299,6 +345,40 @@ onMounted(() => {
 
 .send-button {
   flex-shrink: 0;
+}
+
+/* 加载指示器样式 */
+.loading-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #909399;
+  font-style: italic;
+}
+
+.loading-icon {
+  animation: rotate 2s linear infinite;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.stop-thinking-btn {
+  margin-left: auto;
+  color: #f56c6c;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.stop-thinking-btn:hover {
+  color: #f56c6c;
+  background-color: #fef0f0;
 }
 
 /* 确保消息区域有足够的滚动空间 */

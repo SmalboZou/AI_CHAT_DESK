@@ -3,7 +3,7 @@ import axios from 'axios'
 // 创建axios实例
 const api = axios.create({
   baseURL: 'http://localhost:8000',
-  timeout: 30000,
+  timeout: 60000, // 增加超时时间到60秒，允许AI响应时间更长
   headers: {
     'Content-Type': 'application/json'
   }
@@ -62,9 +62,11 @@ export interface ChatResponse {
 
 export const chatAPI = {
   // 发送聊天消息
-  sendMessage: async (request: ChatRequest): Promise<ChatResponse> => {
+  sendMessage: async (request: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> => {
     try {
-      const response = await api.post('/api/chat', request)
+      const response = await api.post('/api/chat', request, {
+        signal: signal
+      })
       return response.data
     } catch (error: any) {
       // 提供更详细的错误信息
