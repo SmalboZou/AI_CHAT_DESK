@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, AsyncGenerator
 import os
 from dotenv import load_dotenv
 import httpx
 import asyncio
+import json
+import logging
 
 # 加载环境变量
 load_dotenv()
@@ -39,6 +41,8 @@ class ChatRequest(BaseModel):
     model: str = "gpt-3.5-turbo"
     temperature: float = 0.7
     max_tokens: int = 2048
+    stream: bool = False
+    api_config: Optional[dict] = None
 
 class ChatResponse(BaseModel):
     message: ChatMessage
@@ -69,10 +73,49 @@ async def health_check():
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
+    """处理聊天请求 - 非流式"""
+    if request.stream:
+        raise HTTPException(status_code=400, detail="请使用 /api/chat/stream 端点进行流式请求")
+    
+    # 原有的非流式处理逻辑
+    return await _process_chat_request(request)
+
+@app.post("/api/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """处理流式聊天请求"""
+    if not request.stream:
+        request.stream = True
+    
+    async def generate_stream():
+        try:
+            async for chunk in _process_streaming_chat(request):
+                if chunk:
+                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            error_chunk = {
+                "error": True,
+                "message": str(e)
+            }
+            yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+async def _process_chat_request(request: ChatRequest) -> ChatResponse:
     """处理聊天请求"""
     try:
         # 根据provider选择相应的API配置
-        config = get_api_config(request.provider)
+        config = get_api_config(request.provider, request.api_config)
         
         # 详细的配置验证和日志记录
         print(f"\n=== 聊天请求调试信息 ===")
@@ -129,6 +172,50 @@ async def chat(request: ChatRequest):
         error_msg = f"聊天请求失败: {str(e)}"
         print(f"未知错误: {error_msg}")
         raise HTTPException(status_code=500, detail=error_msg)
+
+async def _process_streaming_chat(request: ChatRequest) -> AsyncGenerator[dict, None]:
+    """处理流式聊天请求"""
+    try:
+        # 根据provider选择相应的API配置
+        config = get_api_config(request.provider, request.api_config)
+        
+        print(f"\n=== 流式聊天请求调试信息 ===")
+        print(f"Provider: {request.provider}")
+        print(f"Model: {request.model}")
+        print(f"API Key存在: {'是' if config.get('api_key') else '否'}")
+        print(f"Base URL: {config.get('base_url')}")
+        print(f"消息数量: {len(request.messages)}")
+        
+        # 如果是演示模式，调用演示流式API
+        if request.provider == "demo":
+            print(f"使用演示模式流式输出...")
+            async for chunk in call_demo_streaming_api(request, config):
+                yield chunk
+            return
+        
+        # 验证配置
+        if not config.get('api_key'):
+            error_msg = f"未配置{request.provider}的API密钥，请先在设置中配置或选择演示模式"
+            print(f"错误: {error_msg}")
+            yield {"error": True, "message": error_msg}
+            return
+        
+        print(f"开始流式调用 {request.provider} API...")
+        
+        if request.provider == "openai":
+            async for chunk in call_openai_streaming_api(request, config):
+                yield chunk
+        elif request.provider == "anthropic":
+            async for chunk in call_anthropic_streaming_api(request, config):
+                yield chunk
+        else:
+            async for chunk in call_custom_streaming_api(request, config):
+                yield chunk
+                
+    except Exception as e:
+        error_msg = f"流式聊天请求失败: {str(e)}"
+        print(f"流式处理错误: {error_msg}")
+        yield {"error": True, "message": error_msg}
 
 @app.post("/api/config")
 async def save_config(config: APIConfig):
@@ -239,11 +326,17 @@ async def test_connection(config: APIConfig):
         print(f"连接测试未知异常: {error_msg}")
         raise HTTPException(status_code=500, detail=error_msg)
 
-def get_api_config(provider: str) -> dict:
+def get_api_config(provider: str, api_config: Optional[dict] = None) -> dict:
     """获取API配置"""
+    # 优先使用请求中传入的配置
+    if api_config:
+        return api_config
+    
+    # 其次使用存储的配置
     if provider in api_configs:
         return api_configs[provider]
     
+    # 最后使用默认配置
     return get_default_config(provider)
 
 def get_default_config(provider: str) -> dict:
@@ -574,14 +667,251 @@ async def call_custom_api(request: ChatRequest, config: dict) -> ChatResponse:
         error_msg = f"连接自定义API失败: {str(e)} - 请检查Base URL是否正确或网络连接"
         print(f"连接错误: {error_msg}")
         raise HTTPException(status_code=503, detail=error_msg)
-    except httpx.RequestError as e:
-        error_msg = f"请求自定义API失败: {str(e)}"
-        print(f"请求错误: {error_msg}")
-        raise HTTPException(status_code=500, detail=error_msg)
+
+# 流式API调用函数
+async def call_openai_streaming_api(request: ChatRequest, config: dict) -> AsyncGenerator[dict, None]:
+    """调用OpenAI流式API"""
+    if not config.get('api_key'):
+        yield {"error": True, "message": "未配置OpenAI API密钥"}
+        return
+    
+    headers = {
+        "Authorization": f"Bearer {config['api_key']}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": request.model,
+        "messages": [{"role": msg.role, "content": msg.content} for msg in request.messages],
+        "temperature": request.temperature,
+        "max_tokens": request.max_tokens,
+        "stream": True
+    }
+    
+    try:
+        timeout = httpx.Timeout(60.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                f"{config['base_url']}/chat/completions",
+                headers=headers,
+                json=payload
+            ) as response:
+                if response.status_code != 200:
+                    error_detail = f"OpenAI API错误 (状态码: {response.status_code})"
+                    yield {"error": True, "message": error_detail}
+                    return
+                
+                content_buffer = ""
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        
+                        try:
+                            chunk_data = json.loads(data_str)
+                            if "choices" in chunk_data and len(chunk_data["choices"]) > 0:
+                                delta = chunk_data["choices"][0].get("delta", {})
+                                if "content" in delta and delta["content"] is not None:
+                                    content = delta["content"]
+                                    content_buffer += content
+                                    yield {
+                                        "type": "content",
+                                        "content": content,
+                                        "full_content": content_buffer
+                                    }
+                        except json.JSONDecodeError:
+                            continue
+                            
     except Exception as e:
-        error_msg = f"调用自定义API时发生未知错误: {str(e)}"
-        print(f"未知错误: {error_msg}")
-        raise HTTPException(status_code=500, detail=error_msg)
+        print(f"Debug: OpenAI streaming error: {e}")
+        yield {"error": True, "message": f"请求OpenAI流式API失败: {str(e)}"}
+
+async def call_anthropic_streaming_api(request: ChatRequest, config: dict) -> AsyncGenerator[dict, None]:
+    """调用Anthropic流式API"""
+    if not config.get('api_key'):
+        yield {"error": True, "message": "未配置Anthropic API密钥"}
+        return
+    
+    headers = {
+        "x-api-key": config['api_key'],
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01"
+    }
+    
+    # 转换消息格式为Anthropic格式
+    anthropic_messages = []
+    system_message = ""
+    
+    for msg in request.messages:
+        if msg.role == "system":
+            system_message = msg.content
+        elif msg.role in ["user", "assistant"]:
+            anthropic_messages.append({
+                "role": msg.role,
+                "content": msg.content
+            })
+    
+    payload = {
+        "model": request.model,
+        "max_tokens": request.max_tokens,
+        "temperature": request.temperature,
+        "messages": anthropic_messages,
+        "stream": True
+    }
+    
+    if system_message:
+        payload["system"] = system_message
+    
+    try:
+        timeout = httpx.Timeout(60.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                f"{config['base_url']}/v1/messages",
+                headers=headers,
+                json=payload
+            ) as response:
+                if response.status_code != 200:
+                    error_detail = f"Anthropic API错误 (状态码: {response.status_code})"
+                    yield {"error": True, "message": error_detail}
+                    return
+                
+                content_buffer = ""
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        
+                        try:
+                            chunk_data = json.loads(data_str)
+                            if chunk_data.get("type") == "content_block_delta":
+                                delta = chunk_data.get("delta", {})
+                                if "text" in delta and delta["text"] is not None:
+                                    content = delta["text"]
+                                    content_buffer += content
+                                    yield {
+                                        "type": "content",
+                                        "content": content,
+                                        "full_content": content_buffer
+                                    }
+                        except json.JSONDecodeError:
+                            continue
+                            
+    except Exception as e:
+        yield {"error": True, "message": f"请求Anthropic流式API失败: {str(e)}"}
+
+async def call_custom_streaming_api(request: ChatRequest, config: dict) -> AsyncGenerator[dict, None]:
+    """调用自定义流式API（如硅基流动等）"""
+    if not config.get('api_key'):
+        yield {"error": True, "message": "未配置自定义API密钥"}
+        return
+    
+    if not config.get('base_url'):
+        yield {"error": True, "message": "未配置自定义API地址"}
+        return
+    
+    headers = {
+        "Authorization": f"Bearer {config['api_key']}",
+        "Content-Type": "application/json",
+        "User-Agent": "AI-Chat-App/1.0"
+    }
+    
+    payload = {
+        "model": request.model,
+        "messages": [{"role": msg.role, "content": msg.content} for msg in request.messages],
+        "temperature": request.temperature,
+        "max_tokens": request.max_tokens,
+        "stream": True
+    }
+    
+    try:
+        base_url = config['base_url'].rstrip('/')
+        if not base_url.endswith('/chat/completions'):
+            api_url = f"{base_url}/chat/completions"
+        else:
+            api_url = base_url
+        
+        print(f"正在请求流式API: {api_url}")
+        
+        timeout = httpx.Timeout(60.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                api_url,
+                headers=headers,
+                json=payload
+            ) as response:
+                if response.status_code != 200:
+                    error_detail = f"自定义API错误 (状态码: {response.status_code})"
+                    yield {"error": True, "message": error_detail}
+                    return
+                
+                content_buffer = ""
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        
+                        try:
+                            chunk_data = json.loads(data_str)
+                            if "choices" in chunk_data and len(chunk_data["choices"]) > 0:
+                                delta = chunk_data["choices"][0].get("delta", {})
+                                if "content" in delta and delta["content"] is not None:
+                                    content = delta["content"]
+                                    content_buffer += content
+                                    yield {
+                                        "type": "content",
+                                        "content": content,
+                                        "full_content": content_buffer
+                                    }
+                        except json.JSONDecodeError:
+                            continue
+                            
+    except Exception as e:
+        print(f"Debug: Custom API streaming error: {e}")
+        yield {"error": True, "message": f"请求自定义流式API失败: {str(e)}"}
+
+async def call_demo_streaming_api(request: ChatRequest, config: dict) -> AsyncGenerator[dict, None]:
+    """演示流式API - 模拟字符逐个输出"""
+    import random
+    
+    # 获取用户最后一条消息
+    user_message = request.messages[-1].content if request.messages else "你好"
+    
+    # 预定义一些模拟回复
+    demo_responses = [
+        f"你好！我是演示AI助手。我收到了你的消息：\"{user_message}\"。这是一个模拟的流式回复，用于测试应用功能。",
+        f"非常感谢你的问题：\"{user_message}\"。作为演示模式，我可以告诉你，这个应用的流式聊天功能工作正常！要使用真实的AI，请配置真实的API密钥。",
+        f"我正在演示模式下运行。你问了：\"{user_message}\"。如果这是真实的AI服务，我会给出更加智能和有用的回答。现在你可以体验应用的流式输出界面。"
+    ]
+    
+    # 随机选择一个回复
+    response_content = random.choice(demo_responses)
+    
+    # 模拟流式输出
+    content_buffer = ""
+    
+    # 按字符逐个输出，模拟真实的流式体验
+    for char in response_content:
+        content_buffer += char
+        yield {
+            "type": "content",
+            "content": char,
+            "full_content": content_buffer
+        }
+        # 随机延迟，模拟网络传输
+        await asyncio.sleep(random.uniform(0.01, 0.05))
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
     import uvicorn

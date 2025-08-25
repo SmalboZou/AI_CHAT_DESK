@@ -123,40 +123,67 @@ function startBackend() {
     return
   }
 
-  const backendPath = path.join(__dirname, '../../backend')
-  const pythonPath = path.join(backendPath, '.venv', 'Scripts', 'python.exe')
-  const mainPath = path.join(backendPath, 'src', 'main.py')
-  
-  console.log('正在启动后端服务...')
-  
-  // 启动Python后端服务
-  backendProcess = spawn(pythonPath, [mainPath], {
-    cwd: backendPath,
-    stdio: process.env.NODE_ENV === 'development' ? 'inherit' : 'pipe', // 开发时显示输出，生产时隐藏
-    windowsHide: true // 在Windows上隐藏控制台窗口
-  })
-
-  backendProcess.on('error', (err) => {
-    console.error('启动后端服务失败:', err)
-    console.log('提示：您可以手动启动后端服务：cd backend && uv run python src/main.py')
-  })
-
-  backendProcess.on('close', (code) => {
-    console.log(`后端进程退出，代码: ${code}`)
-  })
-
-  // 监听后端输出（如果需要的话）
-  if (backendProcess.stdout) {
-    backendProcess.stdout.on('data', (data) => {
-      console.log(`后端输出: ${data}`)
-    })
+  // 检查后端是否已经在运行
+  const checkBackend = async () => {
+    try {
+      const { net } = require('electron')
+      const request = net.request('http://127.0.0.1:8000')
+      return new Promise((resolve) => {
+        request.on('response', () => {
+          console.log('后端已在运行，跳过启动')
+          resolve(true)
+        })
+        request.on('error', () => {
+          resolve(false)
+        })
+        request.end()
+      })
+    } catch {
+      return false
+    }
   }
 
-  if (backendProcess.stderr) {
-    backendProcess.stderr.on('data', (data) => {
-      console.error(`后端错误: ${data}`)
+  checkBackend().then((isRunning) => {
+    if (isRunning) {
+      console.log('检测到后端已在运行，跳过启动')
+      return
+    }
+
+    const backendPath = path.join(__dirname, '../../backend')
+    const pythonPath = path.join(backendPath, '.venv', 'Scripts', 'python.exe')
+    const mainPath = path.join(backendPath, 'src', 'main.py')
+    
+    console.log('正在启动后端服务...')
+    
+    // 启动Python后端服务
+    backendProcess = spawn(pythonPath, [mainPath], {
+      cwd: backendPath,
+      stdio: process.env.NODE_ENV === 'development' ? 'inherit' : 'pipe', // 开发时显示输出，生产时隐藏
+      windowsHide: true // 在Windows上隐藏控制台窗口
     })
-  }
+
+    backendProcess.on('error', (err) => {
+      console.error('启动后端服务失败:', err)
+      console.log('提示：您可以手动启动后端服务：cd backend && uv run python src/main.py')
+    })
+
+    backendProcess.on('close', (code) => {
+      console.log(`后端进程退出，代码: ${code}`)
+    })
+
+    // 监听后端输出（如果需要的话）
+    if (backendProcess.stdout) {
+      backendProcess.stdout.on('data', (data) => {
+        console.log(`后端输出: ${data}`)
+      })
+    }
+
+    if (backendProcess.stderr) {
+      backendProcess.stderr.on('data', (data) => {
+        console.error(`后端错误: ${data}`)
+      })
+    }
+  })
 }
 
 // 停止后端服务

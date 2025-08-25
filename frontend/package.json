@@ -13,7 +13,8 @@
     "start": "npm run dev",
     "electron:build": "npm run build && electron-builder",
     "backend:start": "cd ../backend && uv run python src/main.py",
-    "full:dev": "concurrently \"npm run backend:start\" \"npm run dev\"",
+    "full:dev": "concurrently \"npm run dev:vite\" \"ping -n 6 127.0.0.1 >nul && npm run dev:electron\"",
+    "full:dev:simple": "concurrently \"npm run backend:start\" \"npm run dev:vite\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore",
     "type-check": "vue-tsc --noEmit"
   },

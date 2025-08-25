@@ -1,59 +1,95 @@
 <template>
   <div class="chat-container">
-    <el-container>
-      <el-header height="60px" class="chat-header">
-        <div class="header-content">
-          <h2>AI 聊天助手</h2>
-          <el-button type="primary" @click="$router.push('/settings')">
-            <el-icon><Setting /></el-icon>
-            设置
-          </el-button>
+    <el-header height="60px" class="chat-header">
+      <div class="header-content">
+        <h2>AI 聊天助手</h2>
+        <el-button type="primary" @click="$router.push('/settings')">
+          <el-icon><Setting /></el-icon>
+          设置
+        </el-button>
+      </div>
+    </el-header>
+    
+    <div class="chat-main">
+      <div class="messages-container" ref="messagesContainer">
+        <div v-for="message in messages" :key="message.id" class="message-item">
+          <div :class="['message', message.role]">
+            <div class="message-avatar">
+              <el-icon v-if="message.role === 'user'"><User /></el-icon>
+              <el-icon v-else><ChatDotRound /></el-icon>
+            </div>
+            <div class="message-content">{{ message.content }}</div>
+          </div>
         </div>
-      </el-header>
-      
-      <el-main class="chat-main">
-        <div class="messages-container" ref="messagesContainer">
-          <div v-for="message in messages" :key="message.id" class="message-item">
-            <div :class="['message', message.role]">
-              <div class="message-avatar">
-                <el-icon v-if="message.role === 'user'"><User /></el-icon>
-                <el-icon v-else><ChatDotRound /></el-icon>
-              </div>
-              <div class="message-content">{{ message.content }}</div>
+        
+        <!-- 显示正在流式输出的消息 -->
+        <div v-if="currentStreamingMessage" class="message-item">
+          <div class="message assistant">
+            <div class="message-avatar">
+              <el-icon><ChatDotRound /></el-icon>
+            </div>
+            <div class="message-content streaming-content">
+              {{ currentStreamingMessage.content }}
+              <span class="streaming-cursor">|</span>
             </div>
           </div>
         </div>
-      </el-main>
-      
-      <el-footer height="80px" class="chat-footer">
-        <div class="input-container">
-          <el-input
-            v-model="inputMessage"
-            type="textarea"
-            :autosize="{ minRows: 1, maxRows: 3 }"
-            placeholder="输入你的消息...按Ctrl+Enter发送"
-            @keyup.enter.ctrl="sendMessage"
-            class="message-input"
-          />
-          <el-button 
-            type="primary" 
-            @click="sendMessage"
-            :disabled="!inputMessage.trim() || isLoading"
-            :loading="isLoading"
-            class="send-button"
-          >
-            发送
-          </el-button>
+        
+        <!-- 显示载入指示器（仅在非流式模式或等待开始时显示） -->
+        <div v-if="isLoading && !currentStreamingMessage" class="message-item">
+          <div class="message assistant">
+            <div class="message-avatar">
+              <el-icon><ChatDotRound /></el-icon>
+            </div>
+            <div class="message-content loading-content">
+              <el-icon class="loading-icon"><Loading /></el-icon>
+              AI正在思考中...
+              <el-button type="text" size="small" @click="stopMessage" class="stop-thinking-btn">
+                停止
+              </el-button>
+            </div>
+          </div>
         </div>
-      </el-footer>
-    </el-container>
+      </div>
+    </div>
+    
+    <el-footer height="auto" class="chat-footer">
+      <div class="input-container">
+        <el-input
+          v-model="inputMessage"
+          type="textarea"
+          :autosize="{ minRows: 1, maxRows: 3 }"
+          placeholder="输入你的消息...按Ctrl+Enter发送"
+          @keyup.enter.ctrl="sendMessage"
+          class="message-input"
+        />
+        <el-button 
+          v-if="!isLoading"
+          type="primary" 
+          @click="sendMessage"
+          :disabled="!inputMessage.trim()"
+          class="send-button"
+        >
+          发送
+        </el-button>
+        <el-button 
+          v-else
+          type="danger" 
+          @click="stopMessage"
+          class="send-button"
+        >
+          <el-icon><CircleClose /></el-icon>
+          停止
+        </el-button>
+      </div>
+    </el-footer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { User, ChatDotRound, Setting } from '@element-plus/icons-vue'
+import { User, ChatDotRound, Setting, CircleClose, Loading } from '@element-plus/icons-vue'
 import { useSettingsStore } from '../stores/settings'
 import { chatAPI } from '../services/api'
 import type { ChatMessage } from '../services/api'
@@ -63,21 +99,17 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+  isStreaming?: boolean
 }
 
 const settingsStore = useSettingsStore()
-const messages = ref<Message[]>([
-  {
-    id: 1,
-    role: 'assistant',
-    content: '您好！我是AI助手。当前应用默认运行在演示模式下，您可以直接体验聊天功能。如需使用真实的AI模型，请在设置中配置相应的API密钥。',
-    timestamp: new Date()
-  }
-])
+const messages = ref<Message[]>([])
 
 const inputMessage = ref('')
 const isLoading = ref(false)
 const messagesContainer = ref<HTMLElement>()
+const abortController = ref<AbortController | null>(null)
+const currentStreamingMessage = ref<Message | null>(null)
 
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return
@@ -104,6 +136,9 @@ const sendMessage = async () => {
   scrollToBottom()
 
   isLoading.value = true
+  
+  // 创建新的 AbortController 用于取消请求
+  abortController.value = new AbortController()
 
   try {
     // 准备发送给API的消息历史（只发送最近的10条消息避免上下文过长）
@@ -112,46 +147,49 @@ const sendMessage = async () => {
       content: msg.content
     })) as ChatMessage[]
 
-    const response = await chatAPI.sendMessage({
+    const requestData = {
       messages: recentMessages,
       provider: settingsStore.apiSettings.provider,
       model: settingsStore.apiSettings.modelName,
       temperature: settingsStore.apiSettings.temperature,
-      max_tokens: settingsStore.apiSettings.maxTokens
-    })
+      max_tokens: settingsStore.apiSettings.maxTokens,
+      api_config: {
+        api_key: settingsStore.apiSettings.apiKey,
+        base_url: settingsStore.apiSettings.baseUrl,
+        model: settingsStore.apiSettings.modelName
+      }
+    }
 
-    const aiMessage: Message = {
-      id: Date.now() + 1,
-      role: 'assistant',
-      content: response.message.content,
-      timestamp: new Date()
+    // 根据设置决定是否使用流式输出
+    if (settingsStore.apiSettings.streamEnabled) {
+      await handleStreamingResponse(requestData)
+    } else {
+      await handleNormalResponse(requestData)
     }
     
-    messages.value.push(aiMessage)
-    await nextTick()
-    scrollToBottom()
-    
   } catch (error: any) {
+    // 如果是用户主动取消的请求，不显示错误信息
+    if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
+      console.log('请求已被用户取消')
+      ElMessage.info('消息发送已停止')
+      return
+    }
+    
     console.error('发送消息失败:', error)
     
     // 显示详细错误信息
     let errorMessage = '发送消息失败'
-    let suggestion = ''
     
     if (error.response?.status === 401) {
       errorMessage = 'API认证失败（401错误）'
-      suggestion = '建议：1. 检查API密钥是否正确  2. 尝试使用演示模式进行测试'
     } else if (error.response?.data?.detail) {
       errorMessage = error.response.data.detail
-      if (errorMessage.includes('API密钥')) {
-        suggestion = '建议：在设置中选择"演示模式"可无需API密钥直接体验'
-      }
     } else if (error.message) {
       errorMessage = error.message
     }
     
     ElMessage.error({
-      message: errorMessage + (suggestion ? '\n' + suggestion : ''),
+      message: errorMessage,
       duration: 5000,
       showClose: true
     })
@@ -160,7 +198,7 @@ const sendMessage = async () => {
     const errorMsg: Message = {
       id: Date.now() + 1,
       role: 'assistant',
-      content: `抱歉，发生了错误：${errorMessage}\n\n${suggestion || '请检查您的API配置是否正确，或在设置中选择演示模式。'}`,
+      content: `抱歉，发生了错误：${errorMessage}\n\n请检查您的API配置是否正确。`,
       timestamp: new Date()
     }
     messages.value.push(errorMsg)
@@ -168,12 +206,102 @@ const sendMessage = async () => {
     scrollToBottom()
   } finally {
     isLoading.value = false
+    currentStreamingMessage.value = null
+    abortController.value = null
+  }
+}
+
+// 处理流式响应
+const handleStreamingResponse = async (requestData: any) => {
+  // 创建一个临时的流式消息
+  const streamingMsg: Message = {
+    id: Date.now() + 1,
+    role: 'assistant',
+    content: '',
+    timestamp: new Date(),
+    isStreaming: true
+  }
+  
+  currentStreamingMessage.value = streamingMsg
+  
+  await chatAPI.sendStreamingMessage(
+    requestData,
+    // onChunk 回调
+    (chunk) => {
+      if (currentStreamingMessage.value) {
+        currentStreamingMessage.value.content = chunk.full_content
+        // 自动滚动到底部
+        nextTick(() => scrollToBottom())
+      }
+    },
+    // onError 回调
+    (error) => {
+      console.error('流式响应错误:', error)
+      ElMessage.error(`流式响应错误: ${error}`)
+      
+      // 如果已有部分内容，保存到消息列表
+      if (currentStreamingMessage.value && currentStreamingMessage.value.content) {
+        const finalMessage = { ...currentStreamingMessage.value, isStreaming: false }
+        messages.value.push(finalMessage)
+      }
+      
+      currentStreamingMessage.value = null
+    },
+    // onComplete 回调
+    () => {
+      if (currentStreamingMessage.value) {
+        // 将流式消息添加到正式消息列表
+        const finalMessage = { ...currentStreamingMessage.value, isStreaming: false }
+        messages.value.push(finalMessage)
+        currentStreamingMessage.value = null
+        
+        nextTick(() => scrollToBottom())
+      }
+    },
+    abortController.value?.signal
+  )
+}
+
+// 处理普通（非流式）响应
+const handleNormalResponse = async (requestData: any) => {
+  const response = await chatAPI.sendMessage(requestData, abortController.value?.signal)
+  
+  const aiMessage: Message = {
+    id: Date.now() + 1,
+    role: 'assistant',
+    content: response.message.content,
+    timestamp: new Date()
+  }
+  
+  messages.value.push(aiMessage)
+  await nextTick()
+  scrollToBottom()
+}
+
+const stopMessage = () => {
+  if (abortController.value) {
+    abortController.value.abort()
+    abortController.value = null
+    isLoading.value = false
+    
+    // 如果有正在进行的流式消息，保存已有内容
+    if (currentStreamingMessage.value && currentStreamingMessage.value.content) {
+      const finalMessage = { ...currentStreamingMessage.value, isStreaming: false }
+      messages.value.push(finalMessage)
+      currentStreamingMessage.value = null
+      ElMessage.info('已停止生成，保留了部分内容')
+    } else {
+      ElMessage.info('已停止发送消息')
+    }
   }
 }
 
 const scrollToBottom = () => {
   if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    // 使用 requestAnimationFrame 确保在DOM更新后滚动
+    requestAnimationFrame(() => {
+      messagesContainer.value!.scrollTop = messagesContainer.value!.scrollHeight
+    })
   }
 }
 
@@ -187,6 +315,8 @@ onMounted(() => {
 .chat-container {
   height: 100vh;
   background: #f5f5f5;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-header {
@@ -194,6 +324,7 @@ onMounted(() => {
   border-bottom: 1px solid #e4e7ed;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .header-content {
@@ -209,14 +340,18 @@ onMounted(() => {
 }
 
 .chat-main {
+  flex: 1;
   padding: 20px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .messages-container {
-  height: 100%;
+  flex: 1;
   overflow-y: auto;
   padding-right: 8px;
+  margin-bottom: 20px;
 }
 
 .message-item {
@@ -272,12 +407,17 @@ onMounted(() => {
   background: white;
   border-top: 1px solid #e4e7ed;
   padding: 12px 20px;
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
 }
 
 .input-container {
   display: flex;
   gap: 12px;
   align-items: flex-end;
+  max-width: 100%;
 }
 
 .message-input {
@@ -286,5 +426,80 @@ onMounted(() => {
 
 .send-button {
   flex-shrink: 0;
+}
+
+/* 加载指示器样式 */
+.loading-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #909399;
+  font-style: italic;
+}
+
+.loading-icon {
+  animation: rotate 2s linear infinite;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.stop-thinking-btn {
+  margin-left: auto;
+  color: #f56c6c;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.stop-thinking-btn:hover {
+  color: #f56c6c;
+  background-color: #fef0f0;
+}
+
+/* 确保消息区域有足够的滚动空间 */
+.messages-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* 流式输出的样式 */
+.streaming-content {
+  position: relative;
+}
+
+.streaming-cursor {
+  display: inline-block;
+  animation: blink 1s infinite;
+  color: #409eff;
+  font-weight: bold;
+  margin-left: 2px;
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
 }
 </style>

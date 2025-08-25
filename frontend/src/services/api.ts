@@ -3,7 +3,7 @@ import axios from 'axios'
 // 创建axios实例
 const api = axios.create({
   baseURL: 'http://localhost:8000',
-  timeout: 30000,
+  timeout: 60000, // 增加超时时间到60秒，允许AI响应时间更长
   headers: {
     'Content-Type': 'application/json'
   }
@@ -53,6 +53,8 @@ export interface ChatRequest {
   model?: string
   temperature?: number
   max_tokens?: number
+  stream?: boolean
+  api_config?: any
 }
 
 export interface ChatResponse {
@@ -61,10 +63,12 @@ export interface ChatResponse {
 }
 
 export const chatAPI = {
-  // 发送聊天消息
-  sendMessage: async (request: ChatRequest): Promise<ChatResponse> => {
+  // 发送聊天消息（非流式）
+  sendMessage: async (request: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> => {
     try {
-      const response = await api.post('/api/chat', request)
+      const response = await api.post('/api/chat', request, {
+        signal: signal
+      })
       return response.data
     } catch (error: any) {
       // 提供更详细的错误信息
@@ -75,6 +79,96 @@ export const chatAPI = {
       } else {
         throw new Error('发送消息失败，请稍后重试')
       }
+    }
+  },
+
+  // 发送流式聊天消息
+  sendStreamingMessage: async (
+    request: ChatRequest,
+    onChunk: (chunk: { type: string; content: string; full_content: string }) => void,
+    onError: (error: string) => void,
+    onComplete: () => void,
+    signal?: AbortSignal
+  ): Promise<void> => {
+    try {
+      // 确保启用流式模式
+      const streamRequest = { ...request, stream: true }
+      
+      const response = await fetch('http://localhost:8000/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(streamRequest),
+        signal: signal
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }))
+        throw new Error(errorData.detail || `服务器错误: ${response.status}`)
+      }
+
+      if (!response.body) {
+        throw new Error('响应体为空')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          // 将新数据添加到缓冲区
+          buffer += decoder.decode(value, { stream: true })
+          
+          // 处理缓冲区中的完整行
+          const lines = buffer.split('\n')
+          // 保留最后一个可能不完整的行
+          buffer = lines.pop() || ''
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.slice(6).trim()
+              
+              if (dataStr === '[DONE]') {
+                onComplete()
+                return
+              }
+              
+              try {
+                const chunk = JSON.parse(dataStr)
+                
+                if (chunk.error) {
+                  onError(chunk.message || '流式处理发生错误')
+                  return
+                }
+                
+                if (chunk.type === 'content') {
+                  onChunk(chunk)
+                }
+              } catch (parseError) {
+                console.warn('解析SSE数据失败:', dataStr, parseError)
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock()
+      }
+      
+      onComplete()
+      
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('流式请求被用户取消')
+        return
+      }
+      
+      console.error('流式请求失败:', error)
+      onError(error.message || '流式请求失败，请稍后重试')
     }
   },
 
