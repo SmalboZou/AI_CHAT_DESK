@@ -69,6 +69,17 @@
               />
             </el-form-item>
             
+            <el-form-item label="流式输出">
+              <el-switch 
+                v-model="formSettings.streamEnabled"
+                active-text="启用"
+                inactive-text="禁用"
+              />
+              <div class="setting-description">
+                启用后，AI响应将逐字显示，提供更好的用户体验
+              </div>
+            </el-form-item>
+            
             <el-form-item>
               <el-button type="primary" @click="saveSettings">保存设置</el-button>
               <el-button @click="testConnection" :loading="testing">测试连接</el-button>
@@ -134,7 +145,8 @@ const formSettings = ref<APISettings>({
   baseUrl: 'https://api.openai.com/v1',
   modelName: 'gpt-3.5-turbo',
   temperature: 0.7,
-  maxTokens: 2048
+  maxTokens: 2048,
+  streamEnabled: true
 })
 
 const appSettings = ref<AppSettings>({
@@ -291,5 +303,12 @@ onMounted(() => {
 
 .settings-form {
   max-width: 500px;
+}
+
+.setting-description {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+  line-height: 1.4;
 }
 </style>

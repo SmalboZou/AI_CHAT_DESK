@@ -22,8 +22,21 @@
           </div>
         </div>
         
-        <!-- 显示载入指示器 -->
-        <div v-if="isLoading" class="message-item">
+        <!-- 显示正在流式输出的消息 -->
+        <div v-if="currentStreamingMessage" class="message-item">
+          <div class="message assistant">
+            <div class="message-avatar">
+              <el-icon><ChatDotRound /></el-icon>
+            </div>
+            <div class="message-content streaming-content">
+              {{ currentStreamingMessage.content }}
+              <span class="streaming-cursor">|</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 显示载入指示器（仅在非流式模式或等待开始时显示） -->
+        <div v-if="isLoading && !currentStreamingMessage" class="message-item">
           <div class="message assistant">
             <div class="message-avatar">
               <el-icon><ChatDotRound /></el-icon>
@@ -86,6 +99,7 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+  isStreaming?: boolean
 }
 
 const settingsStore = useSettingsStore()
@@ -95,6 +109,7 @@ const inputMessage = ref('')
 const isLoading = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const abortController = ref<AbortController | null>(null)
+const currentStreamingMessage = ref<Message | null>(null)
 
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return
@@ -132,24 +147,25 @@ const sendMessage = async () => {
       content: msg.content
     })) as ChatMessage[]
 
-    const response = await chatAPI.sendMessage({
+    const requestData = {
       messages: recentMessages,
       provider: settingsStore.apiSettings.provider,
       model: settingsStore.apiSettings.modelName,
       temperature: settingsStore.apiSettings.temperature,
-      max_tokens: settingsStore.apiSettings.maxTokens
-    }, abortController.value.signal)
-
-    const aiMessage: Message = {
-      id: Date.now() + 1,
-      role: 'assistant',
-      content: response.message.content,
-      timestamp: new Date()
+      max_tokens: settingsStore.apiSettings.maxTokens,
+      api_config: {
+        api_key: settingsStore.apiSettings.apiKey,
+        base_url: settingsStore.apiSettings.baseUrl,
+        model: settingsStore.apiSettings.modelName
+      }
     }
-    
-    messages.value.push(aiMessage)
-    await nextTick()
-    scrollToBottom()
+
+    // 根据设置决定是否使用流式输出
+    if (settingsStore.apiSettings.streamEnabled) {
+      await handleStreamingResponse(requestData)
+    } else {
+      await handleNormalResponse(requestData)
+    }
     
   } catch (error: any) {
     // 如果是用户主动取消的请求，不显示错误信息
@@ -190,8 +206,76 @@ const sendMessage = async () => {
     scrollToBottom()
   } finally {
     isLoading.value = false
+    currentStreamingMessage.value = null
     abortController.value = null
   }
+}
+
+// 处理流式响应
+const handleStreamingResponse = async (requestData: any) => {
+  // 创建一个临时的流式消息
+  const streamingMsg: Message = {
+    id: Date.now() + 1,
+    role: 'assistant',
+    content: '',
+    timestamp: new Date(),
+    isStreaming: true
+  }
+  
+  currentStreamingMessage.value = streamingMsg
+  
+  await chatAPI.sendStreamingMessage(
+    requestData,
+    // onChunk 回调
+    (chunk) => {
+      if (currentStreamingMessage.value) {
+        currentStreamingMessage.value.content = chunk.full_content
+        // 自动滚动到底部
+        nextTick(() => scrollToBottom())
+      }
+    },
+    // onError 回调
+    (error) => {
+      console.error('流式响应错误:', error)
+      ElMessage.error(`流式响应错误: ${error}`)
+      
+      // 如果已有部分内容，保存到消息列表
+      if (currentStreamingMessage.value && currentStreamingMessage.value.content) {
+        const finalMessage = { ...currentStreamingMessage.value, isStreaming: false }
+        messages.value.push(finalMessage)
+      }
+      
+      currentStreamingMessage.value = null
+    },
+    // onComplete 回调
+    () => {
+      if (currentStreamingMessage.value) {
+        // 将流式消息添加到正式消息列表
+        const finalMessage = { ...currentStreamingMessage.value, isStreaming: false }
+        messages.value.push(finalMessage)
+        currentStreamingMessage.value = null
+        
+        nextTick(() => scrollToBottom())
+      }
+    },
+    abortController.value?.signal
+  )
+}
+
+// 处理普通（非流式）响应
+const handleNormalResponse = async (requestData: any) => {
+  const response = await chatAPI.sendMessage(requestData, abortController.value?.signal)
+  
+  const aiMessage: Message = {
+    id: Date.now() + 1,
+    role: 'assistant',
+    content: response.message.content,
+    timestamp: new Date()
+  }
+  
+  messages.value.push(aiMessage)
+  await nextTick()
+  scrollToBottom()
 }
 
 const stopMessage = () => {
@@ -199,7 +283,16 @@ const stopMessage = () => {
     abortController.value.abort()
     abortController.value = null
     isLoading.value = false
-    ElMessage.info('已停止发送消息')
+    
+    // 如果有正在进行的流式消息，保存已有内容
+    if (currentStreamingMessage.value && currentStreamingMessage.value.content) {
+      const finalMessage = { ...currentStreamingMessage.value, isStreaming: false }
+      messages.value.push(finalMessage)
+      currentStreamingMessage.value = null
+      ElMessage.info('已停止生成，保留了部分内容')
+    } else {
+      ElMessage.info('已停止发送消息')
+    }
   }
 }
 
@@ -386,5 +479,27 @@ onMounted(() => {
 
 .messages-container::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
+}
+
+/* 流式输出的样式 */
+.streaming-content {
+  position: relative;
+}
+
+.streaming-cursor {
+  display: inline-block;
+  animation: blink 1s infinite;
+  color: #409eff;
+  font-weight: bold;
+  margin-left: 2px;
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
 }
 </style>

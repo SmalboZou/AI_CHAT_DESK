@@ -8,6 +8,7 @@ export interface APISettings {
   modelName: string
   temperature: number
   maxTokens: number
+  streamEnabled: boolean
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -17,7 +18,8 @@ export const useSettingsStore = defineStore('settings', () => {
     baseUrl: 'https://api.openai.com/v1',
     modelName: 'gpt-3.5-turbo',
     temperature: 0.7,
-    maxTokens: 2048
+    maxTokens: 2048,
+    streamEnabled: true
   })
 
   const loadSettings = () => {
