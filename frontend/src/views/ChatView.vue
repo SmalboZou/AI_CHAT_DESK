@@ -89,14 +89,7 @@ interface Message {
 }
 
 const settingsStore = useSettingsStore()
-const messages = ref<Message[]>([
-  {
-    id: 1,
-    role: 'assistant',
-    content: '您好！我是AI助手。当前应用默认运行在演示模式下，您可以直接体验聊天功能。如需使用真实的AI模型，请在设置中配置相应的API密钥。',
-    timestamp: new Date()
-  }
-])
+const messages = ref<Message[]>([])
 
 const inputMessage = ref('')
 const isLoading = ref(false)
@@ -170,22 +163,17 @@ const sendMessage = async () => {
     
     // 显示详细错误信息
     let errorMessage = '发送消息失败'
-    let suggestion = ''
     
     if (error.response?.status === 401) {
       errorMessage = 'API认证失败（401错误）'
-      suggestion = '建议：1. 检查API密钥是否正确  2. 尝试使用演示模式进行测试'
     } else if (error.response?.data?.detail) {
       errorMessage = error.response.data.detail
-      if (errorMessage.includes('API密钥')) {
-        suggestion = '建议：在设置中选择"演示模式"可无需API密钥直接体验'
-      }
     } else if (error.message) {
       errorMessage = error.message
     }
     
     ElMessage.error({
-      message: errorMessage + (suggestion ? '\n' + suggestion : ''),
+      message: errorMessage,
       duration: 5000,
       showClose: true
     })
@@ -194,7 +182,7 @@ const sendMessage = async () => {
     const errorMsg: Message = {
       id: Date.now() + 1,
       role: 'assistant',
-      content: `抱歉，发生了错误：${errorMessage}\n\n${suggestion || '请检查您的API配置是否正确，或在设置中选择演示模式。'}`,
+      content: `抱歉，发生了错误：${errorMessage}\n\n请检查您的API配置是否正确。`,
       timestamp: new Date()
     }
     messages.value.push(errorMsg)
