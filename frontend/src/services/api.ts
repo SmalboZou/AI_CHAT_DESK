@@ -195,6 +195,22 @@ export interface APIConfig {
   model: string
 }
 
+// 模型信息接口
+export interface ModelInfo {
+  id: string
+  object: string
+  created: number
+  owned_by: string
+  description: string
+  type: string
+}
+
+// 模型列表响应接口
+export interface ModelsResponse {
+  object: string
+  data: ModelInfo[]
+}
+
 export const configAPI = {
   // 保存配置
   saveConfig: async (config: APIConfig): Promise<any> => {
@@ -206,6 +222,20 @@ export const configAPI = {
   getConfig: async (provider: string): Promise<APIConfig> => {
     const response = await api.get(`/api/config/${provider}`)
     return response.data
+  },
+
+  // 获取模型列表
+  getModels: async (config: APIConfig): Promise<ModelsResponse> => {
+    try {
+      const response = await api.post('/api/models', config)
+      return response.data
+    } catch (error: any) {
+      if (error.response?.data?.detail) {
+        throw new Error(error.response.data.detail)
+      } else {
+        throw new Error('获取模型列表失败')
+      }
+    }
   }
 }
 

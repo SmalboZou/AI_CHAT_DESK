@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import type { ModelInfo } from '../services/api'
 
 export interface APISettings {
   provider: string
@@ -21,6 +22,11 @@ export const useSettingsStore = defineStore('settings', () => {
     maxTokens: 2048,
     streamEnabled: true
   })
+
+  // 模型列表相关状态
+  const availableModels = ref<ModelInfo[]>([])
+  const modelsLoading = ref(false)
+  const modelsError = ref<string | null>(null)
 
   const loadSettings = () => {
     try {
@@ -59,10 +65,35 @@ export const useSettingsStore = defineStore('settings', () => {
     return !!apiSettings.value.apiKey && !!apiSettings.value.baseUrl
   }
 
+  // 模型相关方法
+  const setAvailableModels = (models: ModelInfo[]) => {
+    availableModels.value = models
+  }
+
+  const setModelsLoading = (loading: boolean) => {
+    modelsLoading.value = loading
+  }
+
+  const setModelsError = (error: string | null) => {
+    modelsError.value = error
+  }
+
+  const clearModels = () => {
+    availableModels.value = []
+    modelsError.value = null
+  }
+
   return {
     apiSettings,
+    availableModels,
+    modelsLoading,
+    modelsError,
     loadSettings,
     saveSettings,
-    isConfigured
+    isConfigured,
+    setAvailableModels,
+    setModelsLoading,
+    setModelsError,
+    clearModels
   }
 })
