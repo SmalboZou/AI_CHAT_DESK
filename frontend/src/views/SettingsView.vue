@@ -22,6 +22,7 @@
               <el-select v-model="formSettings.provider" placeholder="请选择模型提供商" @change="onProviderChange">
                 <el-option label="OpenAI" value="openai" />
                 <el-option label="Anthropic" value="anthropic" />
+                <el-option label="硅基流动" value="siliconflow" />
                 <el-option label="自定义" value="custom" />
               </el-select>
             </el-form-item>
@@ -43,10 +44,31 @@
             </el-form-item>
             
             <el-form-item label="模型名称">
-              <el-input
-                v-model="formSettings.modelName"
-                placeholder="请输入模型名称"
-              />
+              <div class="model-input-container">
+                <el-select 
+                  v-model="formSettings.modelName" 
+                  placeholder="请选择或输入模型名称" 
+                  style="flex: 1;"
+                  filterable
+                  allow-create
+                  default-first-option
+                >
+                  <el-option
+                    v-for="model in availableModels"
+                    :key="model.id"
+                    :label="`${model.id}${model.description ? ' - ' + model.description : ''}`"
+                    :value="model.id"
+                  />
+                </el-select>
+                <el-button 
+                  @click="fetchModels" 
+                  :loading="fetchingModels"
+                  type="primary"
+                  class="fetch-models-btn"
+                >
+                  获取模型
+                </el-button>
+              </div>
             </el-form-item>
             
             <el-form-item label="温度">
@@ -127,7 +149,7 @@ import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { useSettingsStore, type APISettings } from '../stores/settings'
-import { configAPI, chatAPI } from '../services/api'
+import { configAPI, chatAPI, type ModelInfo } from '../services/api'
 import type { ChatMessage } from '../services/api'
 
 interface AppSettings {
@@ -156,6 +178,9 @@ const appSettings = ref<AppSettings>({
 })
 
 const testing = ref(false)
+const fetchingModels = ref(false)
+const showModelSelector = ref(false)
+const availableModels = ref<ModelInfo[]>([])
 
 const saveSettings = async () => {
   try {
@@ -227,6 +252,73 @@ const testConnection = async () => {
   }
 }
 
+// 获取模型列表
+const fetchModels = async () => {
+  console.log('获取模型列表, provider:', formSettings.value.provider)
+  
+  if (!formSettings.value.apiKey && formSettings.value.provider !== 'demo') {
+    ElMessage.warning('请先输入API密钥')
+    return
+  }
+  
+  if (!formSettings.value.baseUrl) {
+    ElMessage.warning('请先输入API基础URL')
+    return
+  }
+  
+  fetchingModels.value = true
+  availableModels.value = []
+  
+  try {
+    const response = await configAPI.getModels({
+      provider: formSettings.value.provider,
+      api_key: formSettings.value.apiKey,
+      base_url: formSettings.value.baseUrl,
+      model: formSettings.value.modelName
+    })
+    
+    if (response && response.data && Array.isArray(response.data)) {
+      availableModels.value = response.data
+      
+      // 更新store中的模型列表
+      settingsStore.setAvailableModels(response.data)
+      
+      ElMessage.success(`成功获取到 ${response.data.length} 个模型`)
+      
+      // 如果当前模型不在列表中，自动选择第一个
+      if (response.data.length > 0) {
+        const currentModel = formSettings.value.modelName
+        const modelExists = response.data.some((model: ModelInfo) => model.id === currentModel)
+        if (!modelExists) {
+          formSettings.value.modelName = response.data[0].id
+          ElMessage.info(`已自动选择模型: ${response.data[0].id}`)
+        }
+      }
+    } else {
+      ElMessage.error('获取模型列表失败：响应格式错误')
+    }
+  } catch (error: any) {
+    console.error('获取模型列表失败:', error)
+    let errorMsg = '获取模型列表失败'
+    
+    if (error.response?.status === 401) {
+      errorMsg = 'API认证失败，请检查API密钥'
+    } else if (error.response?.status === 403) {
+      errorMsg = 'API权限不足，无法获取模型列表'
+    } else if (error.message) {
+      errorMsg = error.message
+    }
+    
+    ElMessage.error({
+      message: errorMsg,
+      duration: 5000,
+      showClose: true
+    })
+  } finally {
+    fetchingModels.value = false
+  }
+}
+
 const loadSettings = () => {
   // 从store加载设置
   settingsStore.loadSettings()
@@ -246,6 +338,10 @@ const loadSettings = () => {
 
 // 当provider改变时，更新默认设置
 const onProviderChange = () => {
+  // 清空模型列表
+  availableModels.value = []
+  settingsStore.clearModels()
+  
   if (formSettings.value.provider === 'openai') {
     formSettings.value.baseUrl = 'https://api.openai.com/v1'
     formSettings.value.modelName = 'gpt-3.5-turbo'
@@ -253,6 +349,10 @@ const onProviderChange = () => {
   } else if (formSettings.value.provider === 'anthropic') {
     formSettings.value.baseUrl = 'https://api.anthropic.com'
     formSettings.value.modelName = 'claude-3-sonnet-20240229'
+    formSettings.value.apiKey = ''
+  } else if (formSettings.value.provider === 'siliconflow') {
+    formSettings.value.baseUrl = 'https://api.siliconflow.cn/v1'
+    formSettings.value.modelName = 'Qwen/Qwen2.5-72B-Instruct'
     formSettings.value.apiKey = ''
   } else if (formSettings.value.provider === 'custom') {
     formSettings.value.baseUrl = ''
@@ -310,5 +410,15 @@ onMounted(() => {
   color: #909399;
   margin-top: 4px;
   line-height: 1.4;
+}
+
+.model-input-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fetch-models-btn {
+  white-space: nowrap;
 }
 </style>

@@ -54,6 +54,18 @@ class APIConfig(BaseModel):
     base_url: str
     model: str
 
+class ModelInfo(BaseModel):
+    id: str
+    object: str = "model"
+    created: int = 0
+    owned_by: str = ""
+    description: str = ""
+    type: str = "chat"
+
+class ModelsResponse(BaseModel):
+    object: str = "list"
+    data: List[ModelInfo]
+
 # API配置存储（生产环境中应该使用数据库）
 api_configs = {}
 
@@ -324,6 +336,56 @@ async def test_connection(config: APIConfig):
     except Exception as e:
         error_msg = f"连接测试失败: {str(e)}"
         print(f"连接测试未知异常: {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)
+
+@app.post("/api/models")
+async def get_models(config: APIConfig) -> ModelsResponse:
+    """获取可用模型列表"""
+    try:
+        print(f"\n=== 获取模型列表调试信息 ===")
+        print(f"Provider: {config.provider}")
+        print(f"API Key存在: {'是' if config.api_key else '否'}")
+        print(f"Base URL: {config.base_url}")
+        
+        # 演示模式返回模拟模型列表
+        if config.provider == "demo":
+            print("使用演示模式获取模型列表")
+            demo_models = [
+                ModelInfo(
+                    id="demo-gpt-3.5-turbo",
+                    description="演示版 GPT-3.5 Turbo 模型",
+                    type="chat"
+                ),
+                ModelInfo(
+                    id="demo-gpt-4",
+                    description="演示版 GPT-4 模型",
+                    type="chat"
+                ),
+                ModelInfo(
+                    id="demo-claude-3",
+                    description="演示版 Claude-3 模型",
+                    type="chat"
+                )
+            ]
+            return ModelsResponse(data=demo_models)
+        
+        # 验证API密钥
+        if not config.api_key:
+            raise HTTPException(status_code=400, detail="未配置API密钥")
+        
+        if config.provider == "openai":
+            return await get_openai_models(config)
+        elif config.provider == "anthropic":
+            return await get_anthropic_models(config)
+        else:  # custom provider（包括硅基流动等）
+            return await get_custom_models(config)
+            
+    except HTTPException as e:
+        print(f"获取模型列表HTTP异常: {e.status_code} - {e.detail}")
+        raise e
+    except Exception as e:
+        error_msg = f"获取模型列表失败: {str(e)}"
+        print(f"获取模型列表未知异常: {error_msg}")
         raise HTTPException(status_code=500, detail=error_msg)
 
 def get_api_config(provider: str, api_config: Optional[dict] = None) -> dict:
@@ -905,6 +967,192 @@ async def call_demo_streaming_api(request: ChatRequest, config: dict) -> AsyncGe
         }
         # 随机延迟，模拟网络传输
         await asyncio.sleep(random.uniform(0.01, 0.05))
+
+# 模型列表获取函数
+async def get_openai_models(config: APIConfig) -> ModelsResponse:
+    """获取OpenAI模型列表"""
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        timeout = httpx.Timeout(30.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(
+                f"{config.base_url}/models",
+                headers=headers
+            )
+        
+        if response.status_code != 200:
+            error_detail = f"OpenAI API错误 (状态码: {response.status_code})"
+            try:
+                error_data = response.json()
+                if 'error' in error_data:
+                    error_detail = f"OpenAI API错误: {error_data['error'].get('message', '未知错误')}"
+            except:
+                pass
+            raise HTTPException(status_code=response.status_code, detail=error_detail)
+        
+        data = response.json()
+        models = []
+        
+        for model in data.get('data', []):
+            # 只显示聊天模型（过滤掉embedding等其他模型）
+            model_id = model.get('id', '')
+            if any(keyword in model_id.lower() for keyword in ['gpt', 'chat', 'turbo']):
+                models.append(ModelInfo(
+                    id=model_id,
+                    description=f"OpenAI {model_id}",
+                    type="chat",
+                    created=model.get('created', 0),
+                    owned_by=model.get('owned_by', 'openai')
+                ))
+        
+        return ModelsResponse(data=models)
+        
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"请求OpenAI API失败: {str(e)}")
+
+async def get_anthropic_models(config: APIConfig) -> ModelsResponse:
+    """获取Anthropic模型列表"""
+    # Anthropic没有公开的模型列表API，返回确定的模型
+    models = [
+        ModelInfo(
+            id="claude-3-opus-20240229",
+            description="Claude 3 Opus - 最先进的模型",
+            type="chat",
+            owned_by="anthropic"
+        ),
+        ModelInfo(
+            id="claude-3-sonnet-20240229",
+            description="Claude 3 Sonnet - 平衡性能和成本",
+            type="chat",
+            owned_by="anthropic"
+        ),
+        ModelInfo(
+            id="claude-3-haiku-20240307",
+            description="Claude 3 Haiku - 快速且经济",
+            type="chat",
+            owned_by="anthropic"
+        ),
+        ModelInfo(
+            id="claude-2.1",
+            description="Claude 2.1 - 上一代模型",
+            type="chat",
+            owned_by="anthropic"
+        )
+    ]
+    
+    return ModelsResponse(data=models)
+
+async def get_custom_models(config: APIConfig) -> ModelsResponse:
+    """获取自定API模型列表（支持硅基流动等）"""
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "AI-Chat-App/1.0"
+    }
+    
+    try:
+        # 尝试使用标准的OpenAI兼容模型列表端点
+        base_url = config.base_url.rstrip('/')
+        if base_url.endswith('/chat/completions'):
+            base_url = base_url.replace('/chat/completions', '')
+        
+        api_url = f"{base_url}/models"
+        
+        print(f"正在请求模型列表API: {api_url}")
+        
+        timeout = httpx.Timeout(30.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(
+                api_url,
+                headers=headers
+            )
+        
+        if response.status_code != 200:
+            error_detail = f"自定API错误 (状态码: {response.status_code})"
+            try:
+                error_data = response.json()
+                if 'error' in error_data:
+                    error_detail = f"自定API错误: {error_data['error'].get('message', '未知错误')}"
+                elif 'detail' in error_data:
+                    error_detail = f"自定API错误: {error_data['detail']}"
+            except:
+                pass
+            raise HTTPException(status_code=response.status_code, detail=error_detail)
+        
+        data = response.json()
+        models = []
+        
+        # 处理不同的响应格式
+        model_list = []
+        if 'data' in data and isinstance(data['data'], list):
+            model_list = data['data']
+        elif 'models' in data and isinstance(data['models'], list):
+            model_list = data['models']
+        elif isinstance(data, list):
+            model_list = data
+        
+        for model in model_list:
+            if isinstance(model, dict):
+                model_id = model.get('id', model.get('name', model.get('model_name', '')))
+                if model_id:
+                    # 过滤聊天模型（排除图像、嵌入等模型）
+                    model_type = model.get('type', model.get('object', 'chat'))
+                    if (model_type in ['chat', 'text', 'model'] or 
+                        any(keyword in model_id.lower() for keyword in 
+                            ['chat', 'gpt', 'qwen', 'deepseek', 'glm', 'yi', 'llama', 
+                             'mistral', 'claude', 'gemini', 'baichuan', 'chatglm'])):
+                        
+                        # 排除明显的非聊天模型
+                        if not any(exclude in model_id.lower() for exclude in 
+                                 ['embedding', 'whisper', 'tts', 'dall-e', 'diffusion', 
+                                  'stable-diffusion', 'clip', 'rerank']):
+                            models.append(ModelInfo(
+                                id=model_id,
+                                description=model.get('description', model_id),
+                                type="chat",
+                                created=model.get('created', 0),
+                                owned_by=model.get('owned_by', model.get('provider', 'custom'))
+                            ))
+            elif isinstance(model, str):
+                # 如果是字符串列表
+                models.append(ModelInfo(
+                    id=model,
+                    description=model,
+                    type="chat"
+                ))
+        
+        if not models:
+            # 如果没有找到模型，返回一些常见模型作为默认选项
+            models = [
+                ModelInfo(
+                    id="gpt-3.5-turbo",
+                    description="GPT-3.5 Turbo",
+                    type="chat"
+                ),
+                ModelInfo(
+                    id="gpt-4",
+                    description="GPT-4",
+                    type="chat"
+                ),
+                ModelInfo(
+                    id="Qwen/Qwen2.5-72B-Instruct",
+                    description="通义千问 2.5-72B",
+                    type="chat"
+                )
+            ]
+        
+        print(f"成功获取到 {len(models)} 个模型")
+        return ModelsResponse(data=models)
+        
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"请求自定API失败: {str(e)}")
+    except Exception as e:
+        print(f"获取自定模型列表错误: {e}")
+        raise HTTPException(status_code=500, detail=f"解析模型列表失败: {str(e)}")
 
 # 配置日志
 logging.basicConfig(
