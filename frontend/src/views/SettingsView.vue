@@ -116,7 +116,7 @@
           
           <el-form label-width="120px" class="settings-form">
             <el-form-item label="主题">
-              <el-select v-model="appSettings.theme" placeholder="请选择主题">
+              <el-select v-model="settingsStore.appSettings.theme" placeholder="请选择主题">
                 <el-option label="浅色" value="light" />
                 <el-option label="深色" value="dark" />
                 <el-option label="自动" value="auto" />
@@ -124,14 +124,14 @@
             </el-form-item>
             
             <el-form-item label="语言">
-              <el-select v-model="appSettings.language" placeholder="请选择语言">
+              <el-select v-model="settingsStore.appSettings.language" placeholder="请选择语言">
                 <el-option label="中文" value="zh" />
                 <el-option label="English" value="en" />
               </el-select>
             </el-form-item>
             
             <el-form-item label="自动保存对话">
-              <el-switch v-model="appSettings.autoSave" />
+              <el-switch v-model="settingsStore.appSettings.autoSave" />
             </el-form-item>
             
             <el-form-item>
@@ -148,15 +148,11 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
-import { useSettingsStore, type APISettings } from '../stores/settings'
+import { useSettingsStore, type APISettings, type AppSettings } from '../stores/settings'
 import { configAPI, chatAPI, type ModelInfo } from '../services/api'
 import type { ChatMessage } from '../services/api'
 
-interface AppSettings {
-  theme: string
-  language: string
-  autoSave: boolean
-}
+
 
 const settingsStore = useSettingsStore()
 
@@ -169,12 +165,6 @@ const formSettings = ref<APISettings>({
   temperature: 0.7,
   maxTokens: 2048,
   streamEnabled: true
-})
-
-const appSettings = ref<AppSettings>({
-  theme: 'light',
-  language: 'zh',
-  autoSave: true
 })
 
 const testing = ref(false)
@@ -202,9 +192,14 @@ const saveSettings = async () => {
   }
 }
 
-const saveAppSettings = () => {
-  localStorage.setItem('appSettings', JSON.stringify(appSettings.value))
-  ElMessage.success('应用设置已保存')
+const saveAppSettings = async () => {
+  try {
+    settingsStore.saveAppSettings(settingsStore.appSettings)
+    ElMessage.success('应用设置已保存')
+  } catch (error) {
+    console.error('保存应用设置失败:', error)
+    ElMessage.error('保存应用设置失败')
+  }
 }
 
 const testConnection = async () => {
@@ -329,11 +324,7 @@ const loadSettings = () => {
   formSettings.value = { ...settingsStore.apiSettings }
   
   console.log('Final form settings:', formSettings.value)
-  
-  const savedAppSettings = localStorage.getItem('appSettings')
-  if (savedAppSettings) {
-    appSettings.value = { ...appSettings.value, ...JSON.parse(savedAppSettings) }
-  }
+  console.log('App settings:', settingsStore.appSettings)
 }
 
 // 当provider改变时，更新默认设置
