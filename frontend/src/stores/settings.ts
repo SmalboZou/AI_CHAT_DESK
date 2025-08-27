@@ -12,6 +12,12 @@ export interface APISettings {
   streamEnabled: boolean
 }
 
+export interface AppSettings {
+  theme: 'light' | 'dark' | 'auto'
+  language: string
+  autoSave: boolean
+}
+
 export const useSettingsStore = defineStore('settings', () => {
   const apiSettings = ref<APISettings>({
     provider: 'openai',
@@ -21,6 +27,12 @@ export const useSettingsStore = defineStore('settings', () => {
     temperature: 0.7,
     maxTokens: 2048,
     streamEnabled: true
+  })
+
+  const appSettings = ref<AppSettings>({
+    theme: 'light',
+    language: 'zh',
+    autoSave: true
   })
 
   // 模型列表相关状态
@@ -49,6 +61,20 @@ export const useSettingsStore = defineStore('settings', () => {
       // 清除无效的localStorage数据
       localStorage.removeItem('aiSettings')
     }
+    
+    // Load app settings
+    try {
+      const savedAppSettings = localStorage.getItem('appSettings')
+      if (savedAppSettings && savedAppSettings !== 'undefined' && savedAppSettings !== 'null') {
+        const parsedAppSettings = JSON.parse(savedAppSettings)
+        if (parsedAppSettings && typeof parsedAppSettings === 'object') {
+          appSettings.value = { ...appSettings.value, ...parsedAppSettings }
+        }
+      }
+    } catch (error) {
+      console.warn('加载应用设置失败，使用默认设置:', error)
+      localStorage.removeItem('appSettings')
+    }
   }
 
   const saveSettings = (settings: APISettings) => {
@@ -58,6 +84,16 @@ export const useSettingsStore = defineStore('settings', () => {
     } catch (error) {
       console.error('保存设置失败:', error)
       throw new Error('保存设置失败，请重试')
+    }
+  }
+
+  const saveAppSettings = (settings: AppSettings) => {
+    try {
+      appSettings.value = { ...settings }
+      localStorage.setItem('appSettings', JSON.stringify(settings))
+    } catch (error) {
+      console.error('保存应用设置失败:', error)
+      throw new Error('保存应用设置失败，请重试')
     }
   }
 
@@ -85,11 +121,13 @@ export const useSettingsStore = defineStore('settings', () => {
 
   return {
     apiSettings,
+    appSettings,
     availableModels,
     modelsLoading,
     modelsError,
     loadSettings,
     saveSettings,
+    saveAppSettings,
     isConfigured,
     setAvailableModels,
     setModelsLoading,
